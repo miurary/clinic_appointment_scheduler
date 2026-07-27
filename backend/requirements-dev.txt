@@ -1,0 +1,5 @@
+# Local + CI only. Kept out of the production image.
+-r requirements.txt
+
+pytest==9.1.1
+pytest-django==4.12.0

@@ -1,0 +1,50 @@
+# Local development stack.
+#
+#   docker compose up -d                 -> Postgres only (run Django in your venv)
+#   docker compose --profile full up     -> Postgres + the API in a container
+#
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: clinic-db
+    environment:
+      # Dev throwaways. Production credentials come from the host's env config.
+      POSTGRES_DB: clinic
+      POSTGRES_USER: clinic
+      POSTGRES_PASSWORD: clinic
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Postgres accepts connections a moment after the container starts, so
+      # dependents must wait for healthy rather than merely started.
+      test: ["CMD-SHELL", "pg_isready -U clinic -d clinic"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    profiles: ["full"]
+    build:
+      context: ./backend
+    container_name: clinic-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      # Service name, not localhost: containers reach each other by name.
+      DATABASE_URL: postgres://clinic:clinic@db:5432/clinic
+      DJANGO_SECRET_KEY: dev-only-insecure-key-change-me
+      DJANGO_DEBUG: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+
+volumes:
+  pgdata:

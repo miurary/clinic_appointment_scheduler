@@ -18,4 +18,8 @@ STORAGES["staticfiles"] = {  # noqa: F405
     "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
 }
 
+# runserver serves static files itself in development, so WhiteNoise has
+# nothing to do and only warns about the uncollected staticfiles directory.
+MIDDLEWARE = [m for m in MIDDLEWARE if "whitenoise" not in m]  # noqa: F405
+
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"

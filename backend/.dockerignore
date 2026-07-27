@@ -1,0 +1,20 @@
+# A host .venv copied into the image would shadow the container's packages
+# with binaries built for a different platform.
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.git/
+.gitignore
+.env
+*.sqlite3
+staticfiles/
+media/
+*.log

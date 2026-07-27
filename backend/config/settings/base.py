@@ -20,7 +20,7 @@ env = environ.Env(
 )
 environ.Env.read_env(REPO_ROOT / ".env")
 
-SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-key-change-me")
+SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-key-replace-before-deploying")
 DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
 

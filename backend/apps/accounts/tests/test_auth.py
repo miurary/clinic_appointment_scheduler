@@ -133,9 +133,9 @@ class TestRegistration:
 
 
 class TestTokens:
-    def test_valid_credentials_return_a_token_pair(self, api_client, patient):
+    def test_valid_credentials_return_a_token_pair(self, api_client, patient, password):
         response = api_client.post(
-            TOKEN, {"email": patient.email, "password": "tests-are-good-42"}, format="json"
+            TOKEN, {"email": patient.email, "password": password}, format="json"
         )
 
         assert response.status_code == 200
@@ -149,21 +149,21 @@ class TestTokens:
 
         assert response.status_code == 401
 
-    def test_an_inactive_account_cannot_log_in(self, api_client, patient):
+    def test_an_inactive_account_cannot_log_in(self, api_client, patient, password):
         """Deactivation is how an account is disabled without deleting the
         history that references it."""
         patient.is_active = False
         patient.save()
 
         response = api_client.post(
-            TOKEN, {"email": patient.email, "password": "tests-are-good-42"}, format="json"
+            TOKEN, {"email": patient.email, "password": password}, format="json"
         )
 
         assert response.status_code == 401
 
-    def test_a_refresh_token_yields_a_new_access_token(self, api_client, patient):
+    def test_a_refresh_token_yields_a_new_access_token(self, api_client, patient, password):
         pair = api_client.post(
-            TOKEN, {"email": patient.email, "password": "tests-are-good-42"}, format="json"
+            TOKEN, {"email": patient.email, "password": password}, format="json"
         )
 
         response = api_client.post(
@@ -173,9 +173,9 @@ class TestTokens:
         assert response.status_code == 200
         assert "access" in response.data
 
-    def test_an_issued_token_authenticates_a_request(self, api_client, patient):
+    def test_an_issued_token_authenticates_a_request(self, api_client, patient, password):
         pair = api_client.post(
-            TOKEN, {"email": patient.email, "password": "tests-are-good-42"}, format="json"
+            TOKEN, {"email": patient.email, "password": password}, format="json"
         )
 
         response = api_client.get(

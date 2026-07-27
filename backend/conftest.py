@@ -41,6 +41,10 @@ class ProviderSpec:
 
     Fixtures are built from it and tests derive expectations from it, so a
     count like "16 slots" is computed from the window rather than typed in.
+
+    Every setting that affects slot generation belongs here. Leaving some of
+    them in the construction helper would mean the spec no longer describes the
+    provider it built.
     """
 
     timezone: str
@@ -48,6 +52,9 @@ class ProviderSpec:
     opens: time
     closes: time
     slot_minutes: int
+    # Off by default so that most tests can book on the frozen Monday itself.
+    min_notice_minutes: int = 0
+    booking_horizon_days: int = 365
 
     def slots_in_hours(self, hours: float) -> int:
         """Whole slots fitting in a span of real elapsed hours.
@@ -107,9 +114,20 @@ def frozen_clock():
 
 
 @pytest.fixture
-def monday():
-    """The provider-local date of FROZEN_NOW."""
-    return FROZEN_NOW.astimezone(NY).date()
+def monday(frozen_clock):
+    """The provider-local date of the frozen instant.
+
+    Depends on frozen_clock deliberately: a test that took a fixed date while
+    timezone.now() still ran live would evaluate notice windows and booking
+    horizons against the real clock, and pass or fail by the calendar.
+    """
+    return frozen_clock.astimezone(NY).date()
+
+
+@pytest.fixture
+def password():
+    """The password every user fixture is created with."""
+    return PASSWORD
 
 
 # --- construction helpers -------------------------------------------------
@@ -141,8 +159,8 @@ def make_provider(email, first, last, spec: ProviderSpec):
         user=user,
         specialty="Family medicine",
         slot_duration_minutes=spec.slot_minutes,
-        min_notice_minutes=0,
-        booking_horizon_days=365,
+        min_notice_minutes=spec.min_notice_minutes,
+        booking_horizon_days=spec.booking_horizon_days,
     )
     AvailabilityRule.objects.create(
         provider=profile,

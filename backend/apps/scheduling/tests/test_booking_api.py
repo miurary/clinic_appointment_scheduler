@@ -110,6 +110,51 @@ class TestSlotsEndpoint:
         assert response.status_code == 401
 
 
+class TestAuthenticationRequired:
+    """Every endpoint, not just the ones that happened to get a test.
+
+    A permission_classes list on a viewset REPLACES the IsAuthenticated
+    default from settings. A class implementing only has_object_permission
+    therefore lets anonymous requests through to the queryset, where
+    AnonymousUser has none of the role properties and the view raises a 500
+    instead of a 401. That is what these cover.
+    """
+
+    def test_appointment_list(self, api_client, frozen_clock):
+        assert api_client.get("/api/appointments/").status_code == 401
+
+    def test_appointment_detail(self, api_client, booked_appointment, frozen_clock):
+        response = api_client.get(f"/api/appointments/{booked_appointment.pk}/")
+        assert response.status_code == 401
+
+    def test_appointment_create(self, api_client, provider, first_slot, frozen_clock):
+        response = api_client.post(
+            "/api/appointments/",
+            {"provider": provider.pk, "start_at": iso(first_slot)},
+            format="json",
+        )
+        assert response.status_code == 401
+        assert not Appointment.objects.exists()
+
+    def test_appointment_cancel(self, api_client, booked_appointment, frozen_clock):
+        response = api_client.post(
+            f"/api/appointments/{booked_appointment.pk}/cancel/", {}, format="json"
+        )
+        assert response.status_code == 401
+        booked_appointment.refresh_from_db()
+        assert booked_appointment.status == AppointmentStatus.SCHEDULED
+
+    def test_provider_list_and_detail(self, api_client, provider, frozen_clock):
+        assert api_client.get("/api/providers/").status_code == 401
+        assert api_client.get(f"/api/providers/{provider.pk}/").status_code == 401
+
+    def test_availability(self, api_client, frozen_clock):
+        assert api_client.get("/api/availability/").status_code == 401
+
+    def test_time_off(self, api_client, frozen_clock):
+        assert api_client.get("/api/time-off/").status_code == 401
+
+
 class TestBooking:
     def test_patient_books_an_open_slot(
         self, patient_client, patient, provider, first_slot, frozen_clock

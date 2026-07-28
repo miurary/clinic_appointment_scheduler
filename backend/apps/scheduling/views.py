@@ -7,6 +7,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import ProviderProfile, User
@@ -89,7 +90,9 @@ class ProviderScopedViewSet(viewsets.ModelViewSet):
     never consulted on list endpoints, so the queryset itself must be narrowed.
     """
 
-    permission_classes = [IsProvider, IsProviderOwner]
+    # IsProvider already implies authentication, but permission_classes
+    # replaces the settings default, so state it rather than rely on that.
+    permission_classes = [IsAuthenticated, IsProvider, IsProviderOwner]
 
     def get_provider_profile(self) -> ProviderProfile:
         profile = getattr(self.request.user, "provider_profile", None)
@@ -123,7 +126,9 @@ class AppointmentViewSet(
     """No update or destroy routes exist: appointments are cancelled, not
     rewritten or deleted, so the record of what a patient was told survives."""
 
-    permission_classes = [IsAppointmentParticipant]
+    # Setting permission_classes REPLACES the IsAuthenticated default from
+    # settings, so it has to be restated here rather than assumed.
+    permission_classes = [IsAuthenticated, IsAppointmentParticipant]
     filterset_fields = ["status"]
 
     def get_serializer_class(self):

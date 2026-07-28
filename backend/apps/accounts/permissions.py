@@ -45,7 +45,16 @@ class IsProviderOwner(BasePermission):
 
 
 class IsAppointmentParticipant(BasePermission):
-    """Either side of an appointment can read it; staff can read any."""
+    """Either side of an appointment can read it; staff can read any.
+
+    has_permission is implemented as well as has_object_permission: without it
+    BasePermission would default to True at the view level, letting an
+    anonymous request reach the queryset and blow up on AnonymousUser, which
+    has none of the role properties.
+    """
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
 
     def has_object_permission(self, request, view, obj):
         user = request.user

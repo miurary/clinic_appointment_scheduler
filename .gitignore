@@ -48,7 +48,9 @@ yarn-error.log*
 /frontend/android/
 
 # --- Editors / OS ---
-.vscode/
+# Exclude the CONTENTS, not the directory: git does not descend into an
+# excluded directory, so a "!" negation inside one never takes effect.
+.vscode/*
 !.vscode/settings.json
 .idea/
 *.swp

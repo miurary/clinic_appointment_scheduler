@@ -1,0 +1,64 @@
+name: backend
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        # Same major version as docker-compose, so CI tests what runs locally.
+        image: postgres:16
+        env:
+          POSTGRES_DB: clinic
+          POSTGRES_USER: clinic
+          POSTGRES_PASSWORD: clinic
+        ports:
+          - 5432:5432
+        # Postgres accepts connections a moment after the container starts;
+        # without this the job races its startup.
+        options: >-
+          --health-cmd "pg_isready -U clinic -d clinic"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DJANGO_SECRET_KEY: ci-only-key-not-used-outside-this-job
+      DATABASE_URL: postgres://clinic:clinic@localhost:5432/clinic
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Check formatting
+        run: ruff format --check .
+
+      - name: Check for missing migrations
+        # Fails if a model was changed without generating a migration, which
+        # otherwise only surfaces on deploy.
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run tests
+        # --create-db overrides the --reuse-db default in pytest.ini: CI always
+        # starts from an empty database.
+        run: pytest --create-db

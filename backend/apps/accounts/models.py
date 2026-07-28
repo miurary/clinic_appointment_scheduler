@@ -3,7 +3,10 @@ from zoneinfo import available_timezones
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.utils import timezone
+
+# Aliased: this model has a `timezone` field, and a class-body assignment does
+# shadow the module-level name for statements later in the same class body.
+from django.utils import timezone as django_timezone
 
 from .managers import UserManager
 
@@ -11,6 +14,24 @@ from .managers import UserManager
 def validate_timezone(value: str) -> None:
     if value not in available_timezones():
         raise ValidationError(f"{value!r} is not a valid IANA timezone name.")
+
+
+class CaseInsensitiveEmailField(models.EmailField):
+    """An EmailField stored in a citext column.
+
+    Postgres compares citext case-insensitively, so the unique index treats
+    pat@example.com and Pat@example.com as the same address. That closes two
+    holes at once: a patient cannot accidentally create a second account by
+    capitalising their own email, and login works whichever way they type it.
+
+    Django removed CIEmailField in 5.1 and points at db_collation with a
+    non-deterministic collation instead. Not used here because Postgres
+    forbids LIKE on such a column, which would break every icontains lookup --
+    including the admin's email search, the tool staff use to find a patient.
+    """
+
+    def db_type(self, connection):
+        return "citext"
 
 
 class Role(models.TextChoices):
@@ -29,7 +50,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     Role-specific data lives on the profile models below.
     """
 
-    email = models.EmailField(unique=True)
+    email = CaseInsensitiveEmailField(unique=True)
     first_name = models.CharField(max_length=150, blank=True)
     last_name = models.CharField(max_length=150, blank=True)
     phone = models.CharField(max_length=32, blank=True)
@@ -48,7 +69,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(
         default=False, verbose_name="can access Django admin"
     )
-    date_joined = models.DateTimeField(default=timezone.now)
+    date_joined = models.DateTimeField(default=django_timezone.now)
 
     objects = UserManager()
 

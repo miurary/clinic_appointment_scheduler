@@ -81,12 +81,33 @@ class RegistrationSerializer(serializers.ModelSerializer):
         return user
 
 
+class LogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField(write_only=True)
+
+
 class PatientProfileSerializer(serializers.ModelSerializer):
+    """Staff-facing view, including clinical notes."""
+
     user = UserSerializer(read_only=True)
 
     class Meta:
         model = PatientProfile
         fields = ["id", "user", "date_of_birth", "notes"]
+
+
+class MyPatientProfileSerializer(serializers.ModelSerializer):
+    """What a patient may see and change about their own record.
+
+    `notes` is deliberately absent rather than read-only: it is staff-authored
+    clinical text, and a patient has no business either editing it or reading
+    it through this endpoint.
+    """
+
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = PatientProfile
+        fields = ["id", "user", "date_of_birth"]
 
 
 class ProviderProfileSerializer(serializers.ModelSerializer):

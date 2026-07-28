@@ -1,0 +1,41 @@
+# Ruff replaces flake8 + isort + pyupgrade + black. Config lives here rather
+# than in setup.cfg because ruff reads pyproject.toml by default.
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes: undefined names, unused imports
+    "I",    # isort: import ordering
+    "B",    # flake8-bugbear: likely bugs
+    "C4",   # flake8-comprehensions
+    "DJ",   # flake8-django
+    "UP",   # pyupgrade
+    "RUF",  # ruff's own rules
+]
+ignore = [
+    # Django models legitimately omit __str__ on some abstract/helper classes,
+    # and null=True on a CharField is occasionally right. Judged case by case.
+    "DJ001",
+    # Line length is enforced by the formatter, which knows when a long string
+    # or URL cannot be split.
+    "E501",
+    # Wants ClassVar on mutable class attributes. Django and DRF declare
+    # Meta.fields, list_display, permission_classes and friends exactly this
+    # way by convention, so this is noise on every model, admin and viewset.
+    "RUF012",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Settings modules build on `from .base import *` by design.
+"config/settings/*.py" = ["F403", "F405"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config", "testkit"]
+
+[tool.ruff.format]
+docstring-code-format = true

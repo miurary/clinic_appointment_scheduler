@@ -2,10 +2,11 @@
 
 Nothing here is persisted. A slot is a computed offer; only a booking is a row.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -14,8 +15,6 @@ from django.utils import timezone as django_timezone
 from apps.accounts.models import ProviderProfile
 
 from ..models import ACTIVE_STATUSES, Appointment, AvailabilityRule, TimeOff
-
-UTC = dt_timezone.utc
 
 
 @dataclass(frozen=True)
@@ -67,7 +66,9 @@ def generate_slots(
     tz = ZoneInfo(provider.timezone)
 
     # Respect how far ahead this provider allows booking.
-    horizon = (now.astimezone(tz).date()) + timedelta(days=provider.booking_horizon_days)
+    horizon = (now.astimezone(tz).date()) + timedelta(
+        days=provider.booking_horizon_days
+    )
     date_to = min(date_to, horizon)
     if date_from > date_to:
         return []

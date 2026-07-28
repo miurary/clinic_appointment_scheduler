@@ -1,0 +1,16 @@
+# Runtime dependencies. Pinned exactly so local, CI and Lightsail install the
+# same versions -- an unpinned deploy can install a Django you never tested.
+Django==5.1.15
+djangorestframework==3.17.1
+djangorestframework-simplejwt==5.5.1
+django-cors-headers==4.9.0
+django-environ==0.14.0
+django-filter==25.1
+drf-spectacular==0.30.0
+
+# [binary] ships a precompiled wheel with libpq bundled: no compiler or
+# libpq-dev needed in the image.
+psycopg[binary]==3.3.4
+
+gunicorn==26.0.0
+whitenoise==6.12.0

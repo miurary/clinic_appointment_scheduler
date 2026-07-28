@@ -1,0 +1,58 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Django ---
+*.log
+db.sqlite3
+db.sqlite3-journal
+/backend/staticfiles/
+/backend/media/
+
+# --- Environment / secrets ---
+# .env holds real credentials; .env.example documents them and IS committed.
+.env
+.env.*
+!.env.example
+
+# --- Tests / tooling ---
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / React Native / Expo ---
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# --- Native build output ---
+/frontend/ios/
+/frontend/android/
+
+# --- Editors / OS ---
+# Exclude the CONTENTS, not the directory: git does not descend into an
+# excluded directory, so a "!" negation inside one never takes effect.
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

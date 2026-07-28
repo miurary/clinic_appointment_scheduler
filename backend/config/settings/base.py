@@ -3,6 +3,7 @@
 Environment-specific modules (dev.py, prod.py) import * from here and override.
 Nothing in this file should assume it is running locally.
 """
+
 from datetime import timedelta
 from pathlib import Path
 
@@ -20,7 +21,9 @@ env = environ.Env(
 )
 environ.Env.read_env(REPO_ROOT / ".env")
 
-SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-key-change-me")
+SECRET_KEY = env(
+    "DJANGO_SECRET_KEY", default="dev-only-insecure-key-replace-before-deploying"
+)
 DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
 
@@ -34,6 +37,9 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     # Third party
     "rest_framework",
+    # Stores revoked refresh tokens. Without it, rotation issues a replacement
+    # but the old token stays valid until it expires.
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
     "drf_spectacular",
@@ -88,7 +94,9 @@ DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
 AUTH_USER_MODEL = "accounts.User"
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -138,6 +146,10 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
+    # Rotation alone only hands out a replacement. This is what actually
+    # revokes the superseded token, so a stolen refresh token stops working as
+    # soon as the real user refreshes.
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 SPECTACULAR_SETTINGS = {

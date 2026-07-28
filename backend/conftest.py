@@ -49,6 +49,7 @@ class ProviderSpec:
     opens: time
     closes: time
     slot_minutes: int
+    specialty: str = "Family medicine"
     # Off by default so that most tests can book on the frozen Monday itself.
     min_notice_minutes: int = 0
     booking_horizon_days: int = 365
@@ -93,6 +94,7 @@ OTHER_PROVIDER_SPEC = ProviderSpec(
     opens=time(10, 0),
     closes=time(16, 0),
     slot_minutes=60,
+    specialty="Dermatology",
 )
 
 # Sundays 01:00-05:00 New York straddles both US DST transitions.
@@ -173,7 +175,7 @@ def make_provider(email, first, last, spec: ProviderSpec):
     )
     profile = ProviderProfile.objects.create(
         user=user,
-        specialty="Family medicine",
+        specialty=spec.specialty,
         slot_duration_minutes=spec.slot_minutes,
         min_notice_minutes=spec.min_notice_minutes,
         booking_horizon_days=spec.booking_horizon_days,

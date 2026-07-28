@@ -13,6 +13,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from django.conf import settings
 from django.db import IntegrityError, OperationalError
 from django.utils.dateparse import parse_datetime
 from rest_framework.serializers import ModelSerializer
@@ -437,6 +438,155 @@ class TestCancellation:
 
         assert response.status_code == 405
         assert Appointment.objects.filter(pk=booked_appointment.pk).exists()
+
+
+class TestProviderDirectory:
+    """ProviderViewSet's own routes, which nothing covered before."""
+
+    def test_lists_every_provider(
+        self, patient_client, provider, other_provider, frozen_clock
+    ):
+        response = patient_client.get("/api/providers/")
+
+        assert response.status_code == 200
+        ids = {row["id"] for row in response.data["results"]}
+        assert ids == {provider.pk, other_provider.pk}
+
+    def test_retrieves_one_provider(self, patient_client, provider, frozen_clock):
+        response = patient_client.get(f"/api/providers/{provider.pk}/")
+
+        assert response.status_code == 200
+        assert response.data["full_name"] == provider.user.get_full_name()
+        assert response.data["timezone"] == provider.user.timezone
+
+    def test_filters_by_specialty(
+        self, patient_client, provider, other_provider, other_provider_spec, frozen_clock
+    ):
+        response = patient_client.get(
+            "/api/providers/", {"specialty": other_provider_spec.specialty}
+        )
+
+        ids = [row["id"] for row in response.data["results"]]
+        assert ids == [other_provider.pk]
+
+    def test_filters_by_whether_they_are_accepting_patients(
+        self, patient_client, provider, other_provider, frozen_clock
+    ):
+        other_provider.accepting_new_patients = False
+        other_provider.save()
+
+        response = patient_client.get(
+            "/api/providers/", {"accepting_new_patients": "true"}
+        )
+
+        ids = [row["id"] for row in response.data["results"]]
+        assert ids == [provider.pk]
+
+    def test_does_not_expose_internal_scheduling_settings(
+        self, patient_client, provider, frozen_clock
+    ):
+        """Patients get ProviderPublicSerializer, not the full profile."""
+        response = patient_client.get(f"/api/providers/{provider.pk}/")
+
+        for internal in (
+            "booking_horizon_days",
+            "min_notice_minutes",
+            "buffer_minutes",
+        ):
+            assert internal not in response.data
+
+
+class TestAppointmentFiltering:
+    def test_filters_by_status(
+        self, patient_client, provider, provider_spec, patient, monday, frozen_clock
+    ):
+        cancelled_start = slot_at(monday, provider_spec, index=4)
+        cancelled = Appointment.objects.create(
+            provider=provider,
+            patient=patient,
+            start_at=cancelled_start,
+            end_at=cancelled_start + timedelta(minutes=provider_spec.slot_minutes),
+            status=AppointmentStatus.CANCELLED,
+        )
+        scheduled_start = slot_at(monday, provider_spec, index=6)
+        scheduled = Appointment.objects.create(
+            provider=provider,
+            patient=patient,
+            start_at=scheduled_start,
+            end_at=scheduled_start + timedelta(minutes=provider_spec.slot_minutes),
+        )
+
+        response = patient_client.get(
+            "/api/appointments/", {"status": AppointmentStatus.SCHEDULED}
+        )
+
+        ids = [row["id"] for row in response.data["results"]]
+        assert ids == [scheduled.pk]
+        assert cancelled.pk not in ids
+
+    def test_filtering_does_not_widen_the_scope(
+        self, other_patient_client, booked_appointment, frozen_clock
+    ):
+        """A filter must never reach past the caller's own queryset."""
+        response = other_patient_client.get(
+            "/api/appointments/", {"status": AppointmentStatus.SCHEDULED}
+        )
+
+        assert response.data["results"] == []
+
+
+class TestPagination:
+    """List endpoints are paginated, but nothing tested past the first page."""
+
+    @pytest.fixture
+    def page_size(self):
+        return settings.REST_FRAMEWORK["PAGE_SIZE"]
+
+    @pytest.fixture
+    def a_full_diary(self, provider, provider_spec, patient, monday):
+        """Two Mondays of back-to-back appointments: more than one page."""
+        appointments = []
+        for week in (0, 1):
+            day = monday + timedelta(days=7 * week)
+            for index in range(provider_spec.slot_count):
+                start = slot_at(day, provider_spec, index)
+                appointments.append(
+                    Appointment(
+                        provider=provider,
+                        patient=patient,
+                        start_at=start,
+                        end_at=start + timedelta(minutes=provider_spec.slot_minutes),
+                    )
+                )
+        Appointment.objects.bulk_create(appointments)
+        return len(appointments)
+
+    def test_first_page_is_capped_and_reports_the_total(
+        self, patient_client, a_full_diary, page_size, frozen_clock
+    ):
+        response = patient_client.get("/api/appointments/")
+
+        assert response.data["count"] == a_full_diary
+        assert len(response.data["results"]) == page_size
+        assert response.data["next"] is not None
+
+    def test_the_remainder_is_on_the_following_page(
+        self, patient_client, a_full_diary, page_size, frozen_clock
+    ):
+        response = patient_client.get("/api/appointments/", {"page": 2})
+
+        assert len(response.data["results"]) == a_full_diary - page_size
+        assert response.data["next"] is None
+
+    def test_pages_do_not_overlap(self, patient_client, a_full_diary, frozen_clock):
+        """Ordering is stable, so no appointment appears on both pages."""
+        first = patient_client.get("/api/appointments/").data["results"]
+        second = patient_client.get("/api/appointments/", {"page": 2}).data["results"]
+
+        first_ids = {row["id"] for row in first}
+        second_ids = {row["id"] for row in second}
+        assert not (first_ids & second_ids)
+        assert len(first_ids | second_ids) == a_full_diary
 
 
 class TestAppointmentIsolation:

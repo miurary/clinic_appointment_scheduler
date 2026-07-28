@@ -14,7 +14,7 @@ counts from the same spec. That keeps expectations like "16 slots" out of the
 assertions: change a window or a slot length in one place and the tests follow.
 """
 from dataclasses import dataclass, replace
-from datetime import date, datetime, time, timezone as dt_timezone
+from datetime import date, time
 
 import pytest
 import time_machine
@@ -22,12 +22,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import PatientProfile, ProviderProfile, Role, User
 from apps.scheduling.models import AvailabilityRule, Weekday
-from testkit import NY
-
-# Monday 2026-03-02, 07:00 in New York -- before that day's 9-5 window, so
-# same-day booking is testable. It is also the Monday before the 2026 US
-# spring-forward (Sunday 2026-03-08), which the DST fixtures rely on.
-FROZEN_NOW = datetime(2026, 3, 2, 12, 0, tzinfo=dt_timezone.utc)
+from testkit import FROZEN_NOW, NY
 
 PASSWORD = "tests-are-good-42"
 

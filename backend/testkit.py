@@ -7,6 +7,11 @@ pytest would try to collect it as a test module.
 from datetime import date, datetime, time, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
+# Monday 2026-03-02, 07:00 in New York -- before that day's 9-5 window, so
+# same-day booking is testable. It is also the Monday before the 2026 US
+# spring-forward (Sunday 2026-03-08), which the DST fixtures rely on.
+FROZEN_NOW = datetime(2026, 3, 2, 12, 0, tzinfo=dt_timezone.utc)
+
 NY = ZoneInfo("America/New_York")
 LA = ZoneInfo("America/Los_Angeles")
 # Half-hour offset, and no DST at all.

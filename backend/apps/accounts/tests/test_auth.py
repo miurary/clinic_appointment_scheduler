@@ -1,8 +1,15 @@
 """Registration, token issuance, and the boundaries of self-service editing."""
+from datetime import timedelta
+from unittest.mock import patch
+
 import pytest
+import time_machine
+from django.conf import settings
 from django.core.cache import cache
+from rest_framework.throttling import SimpleRateThrottle
 
 from apps.accounts.models import PatientProfile, ProviderProfile, Role, User
+from testkit import FROZEN_NOW
 
 pytestmark = pytest.mark.django_db
 
@@ -184,6 +191,227 @@ class TestTokens:
 
         assert response.status_code == 200
         assert response.data["email"] == patient.email
+
+
+class TestThrottling:
+    """The rate limits are configured; these assert they actually fire.
+
+    Without them the suite proved only that `throttle_scope` had been typed
+    somewhere -- and the autouse cache-clearing fixture guaranteed the limits
+    could never trip.
+    """
+
+    @pytest.fixture
+    def tight_limits(self):
+        """Shrink the rates so a limit is reachable in three requests.
+
+        override_settings does not work for this: DRF binds
+        SimpleRateThrottle.THROTTLE_RATES to the settings dict at import time,
+        so the class holds the original object and never sees the override.
+        Patching that dict is what takes effect.
+        """
+        with patch.dict(
+            SimpleRateThrottle.THROTTLE_RATES,
+            {"register": "2/hour", "login": "2/hour"},
+        ):
+            yield
+
+    def _register(self, api_client, n):
+        return api_client.post(
+            REGISTER,
+            {"email": f"applicant{n}@example.com", "password": GOOD_PASSWORD},
+            format="json",
+        )
+
+    def test_registration_is_rate_limited(self, api_client, tight_limits):
+        assert self._register(api_client, 1).status_code == 201
+        assert self._register(api_client, 2).status_code == 201
+
+        blocked = self._register(api_client, 3)
+
+        assert blocked.status_code == 429
+        assert not User.objects.filter(email="applicant3@example.com").exists()
+
+    def test_login_is_rate_limited(self, api_client, patient, tight_limits):
+        """Failed attempts count too, which is the point: an unthrottled login
+        endpoint is a password-guessing oracle."""
+        for _ in range(2):
+            api_client.post(
+                TOKEN, {"email": patient.email, "password": "wrong"}, format="json"
+            )
+
+        blocked = api_client.post(
+            TOKEN, {"email": patient.email, "password": "wrong"}, format="json"
+        )
+
+        assert blocked.status_code == 429
+
+    def test_scopes_are_counted_independently(
+        self, api_client, patient, password, tight_limits
+    ):
+        """Exhausting sign-ups must not lock existing users out of logging in."""
+        self._register(api_client, 1)
+        self._register(api_client, 2)
+        assert self._register(api_client, 3).status_code == 429
+
+        response = api_client.post(
+            TOKEN, {"email": patient.email, "password": password}, format="json"
+        )
+
+        assert response.status_code == 200
+
+    def test_the_throttle_backend_is_wired_up(self):
+        """Guards against the scopes being configured but the class removed."""
+        classes = settings.REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"]
+        rates = settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+
+        assert any("ScopedRateThrottle" in path for path in classes)
+        assert {"register", "login"} <= set(rates)
+
+
+class TestTokenLifecycle:
+    ACCESS_LIFETIME = settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]
+    REFRESH_LIFETIME = settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"]
+
+    def _tokens(self, api_client, patient, password):
+        response = api_client.post(
+            TOKEN, {"email": patient.email, "password": password}, format="json"
+        )
+        return response.data
+
+    def test_an_access_token_works_up_to_its_expiry(
+        self, api_client, patient, password
+    ):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            tokens = self._tokens(api_client, patient, password)
+
+        just_inside = FROZEN_NOW + self.ACCESS_LIFETIME - timedelta(minutes=1)
+        with time_machine.travel(just_inside, tick=False):
+            response = api_client.get(
+                ME, HTTP_AUTHORIZATION=f"Bearer {tokens['access']}"
+            )
+
+        assert response.status_code == 200
+
+    def test_an_expired_access_token_is_rejected(self, api_client, patient, password):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            tokens = self._tokens(api_client, patient, password)
+
+        just_outside = FROZEN_NOW + self.ACCESS_LIFETIME + timedelta(minutes=1)
+        with time_machine.travel(just_outside, tick=False):
+            response = api_client.get(
+                ME, HTTP_AUTHORIZATION=f"Bearer {tokens['access']}"
+            )
+
+        assert response.status_code == 401
+
+    def test_a_tampered_token_is_rejected(self, api_client, patient, password):
+        """The signature is what makes the payload trustworthy."""
+        tokens = self._tokens(api_client, patient, password)
+        header, payload, signature = tokens["access"].split(".")
+        forged = f"{header}.{payload}.{signature[:-4]}AAAA"
+
+        response = api_client.get(ME, HTTP_AUTHORIZATION=f"Bearer {forged}")
+
+        assert response.status_code == 401
+
+    def test_a_refresh_token_cannot_be_used_as_an_access_token(
+        self, api_client, patient, password
+    ):
+        """Tokens carry a type claim; a refresh token is not an authenticator."""
+        tokens = self._tokens(api_client, patient, password)
+
+        response = api_client.get(
+            ME, HTTP_AUTHORIZATION=f"Bearer {tokens['refresh']}"
+        )
+
+        assert response.status_code == 401
+
+    def test_an_expired_refresh_token_cannot_mint_an_access_token(
+        self, api_client, patient, password
+    ):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            tokens = self._tokens(api_client, patient, password)
+
+        past_expiry = FROZEN_NOW + self.REFRESH_LIFETIME + timedelta(minutes=1)
+        with time_machine.travel(past_expiry, tick=False):
+            response = api_client.post(
+                REFRESH, {"refresh": tokens["refresh"]}, format="json"
+            )
+
+        assert response.status_code == 401
+
+    def test_refreshing_rotates_the_refresh_token(
+        self, api_client, patient, password
+    ):
+        tokens = self._tokens(api_client, patient, password)
+
+        response = api_client.post(
+            REFRESH, {"refresh": tokens["refresh"]}, format="json"
+        )
+
+        assert response.status_code == 200
+        assert response.data["refresh"] != tokens["refresh"]
+
+    def test_the_previous_refresh_token_still_works_after_rotation(
+        self, api_client, patient, password
+    ):
+        """Documents a real gap rather than asserting desired behaviour.
+
+        ROTATE_REFRESH_TOKENS issues a replacement but does not invalidate the
+        old one. Revocation needs SimpleJWT's token_blacklist app installed and
+        BLACKLIST_AFTER_ROTATION enabled. Until then a stolen refresh token
+        stays usable for its full lifetime even after the victim refreshes.
+        """
+        tokens = self._tokens(api_client, patient, password)
+        api_client.post(REFRESH, {"refresh": tokens["refresh"]}, format="json")
+
+        reused = api_client.post(
+            REFRESH, {"refresh": tokens["refresh"]}, format="json"
+        )
+
+        assert reused.status_code == 200
+
+
+class TestEmailCaseSensitivity:
+    """Pins current behaviour on a decision worth revisiting.
+
+    normalize_email lowercases only the domain, so the local part stays
+    case-sensitive. That is RFC-defensible and wrong for a patient portal:
+    someone who signs up as pat@ and later types Pat@ cannot log in, and can
+    silently create a second account instead. Fixing it means a citext column
+    or normalising on save.
+    """
+
+    def _register(self, api_client, email):
+        return api_client.post(
+            REGISTER, {"email": email, "password": GOOD_PASSWORD}, format="json"
+        )
+
+    def test_the_domain_is_case_insensitive(self, api_client, db):
+        self._register(api_client, "pat@EXAMPLE.COM")
+
+        response = api_client.post(
+            TOKEN, {"email": "pat@example.com", "password": GOOD_PASSWORD}, format="json"
+        )
+
+        assert response.status_code == 200
+
+    def test_the_local_part_is_case_sensitive_on_login(self, api_client, db):
+        self._register(api_client, "pat@example.com")
+
+        response = api_client.post(
+            TOKEN, {"email": "Pat@example.com", "password": GOOD_PASSWORD}, format="json"
+        )
+
+        assert response.status_code == 401
+
+    def test_differing_case_creates_a_second_account(self, api_client, db):
+        """The user-facing hazard: a duplicate patient record."""
+        assert self._register(api_client, "pat@example.com").status_code == 201
+        assert self._register(api_client, "Pat@example.com").status_code == 201
+
+        assert User.objects.filter(email__iexact="pat@example.com").count() == 2
 
 
 class TestMe:

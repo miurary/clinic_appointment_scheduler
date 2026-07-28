@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "expo-router/entry",
   "dependencies": {
     "@expo-google-fonts/newsreader": "^0.4.1",
     "@expo-google-fonts/public-sans": "^0.4.2",

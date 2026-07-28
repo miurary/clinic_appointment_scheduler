@@ -69,13 +69,7 @@ export function TopNav({
 }
 
 /** Mobile: the fixed bottom tab bar (M5, M6, M8). */
-export function BottomTabs({
-  items,
-  name,
-}: {
-  items: NavItem[];
-  name: string;
-}) {
+export function BottomTabs({ items }: { items: NavItem[] }) {
   const router = useRouter();
   const pathname = usePathname();
 

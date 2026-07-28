@@ -8,7 +8,6 @@ import {
   View,
 } from 'react-native';
 
-import { ApiError } from '../src/api/client';
 import { api } from '../src/api/endpoints';
 import type { Provider, Slot } from '../src/api/types';
 import { Avatar, Chip, initialsFor, Note, tintFor } from '../src/components/Bits';
@@ -17,7 +16,7 @@ import { BottomTabs, MobileHeader, PATIENT_NAV, TopNav } from '../src/components
 import { OptionColumn, Sheet } from '../src/components/Sheet';
 import { SlotButton } from '../src/components/SlotButton';
 import { AppCard, Card } from '../src/components/Surface';
-import { Body, Display, Label, Link, Muted, Semi, Strong } from '../src/components/Typography';
+import { Body, Display, Label, Muted, Semi, Strong } from '../src/components/Typography';
 import { useAuth } from '../src/lib/auth';
 import { useBooking } from '../src/lib/booking';
 import {
@@ -377,7 +376,35 @@ export default function BookScreen() {
   // -------------------------------------------------------------- M2 mobile
   const { morning, afternoon } = splitByHalfDay(daySlots, viewZone);
 
+  const providerSheet = (
+    <Sheet
+      visible={providerSheetOpen}
+      title="Choose a provider"
+      subtitle="Availability and visit length differ by provider."
+      onClose={() => setProviderSheetOpen(false)}
+    >
+      <OptionColumn
+        label="Provider"
+        height={260}
+        options={providers.map((candidate) => ({
+          value: candidate.id,
+          label: candidate.full_name,
+          sublabel: `${candidate.specialty || 'General'} · ${
+            candidate.slot_duration_minutes
+          } min`,
+        }))}
+        value={provider?.id ?? null}
+        onChange={(id) => {
+          const chosen = providers.find((candidate) => candidate.id === id);
+          if (chosen) booking.setProvider(chosen);
+          setProviderSheetOpen(false);
+        }}
+      />
+    </Sheet>
+  );
+
   return (
+    <>
     <AppCard scroll={false}>
       <MobileHeader
         title="Book a visit"
@@ -537,8 +564,10 @@ export default function BookScreen() {
           onPress={onContinue}
         />
       </View>
-      <BottomTabs items={PATIENT_NAV} name={user?.full_name ?? 'You'} />
+      <BottomTabs items={PATIENT_NAV} />
     </AppCard>
+    {providerSheet}
+    </>
   );
 }
 

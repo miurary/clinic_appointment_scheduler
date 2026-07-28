@@ -239,7 +239,7 @@ export default function ProviderTodayScreen() {
         <Label style={styles.sectionLabel}>Schedule</Label>
         {schedule}
       </ScrollView>
-      <BottomTabs items={PROVIDER_NAV} name={user?.full_name ?? 'You'} />
+      <BottomTabs items={PROVIDER_NAV} />
     </AppCard>
   );
 }

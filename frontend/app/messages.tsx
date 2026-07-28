@@ -47,7 +47,7 @@ export default function MessagesScreen() {
   return (
     <AppCard scroll={false}>
       <View style={styles.mobileBody}>{body}</View>
-      <BottomTabs items={PATIENT_NAV} name={name} />
+      <BottomTabs items={PATIENT_NAV} />
     </AppCard>
   );
 }

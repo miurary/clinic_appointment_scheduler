@@ -25,7 +25,7 @@ import {
   labelFor,
   zonedTimeToUtc,
 } from '../../src/lib/datetime';
-import { color, radius } from '../../src/theme/tokens';
+import { color } from '../../src/theme/tokens';
 import { useResponsive } from '../../src/theme/useResponsive';
 
 /** Monday-first, matching the backend's Weekday choices (Monday = 0). */
@@ -552,7 +552,7 @@ export default function ProviderAvailabilityScreen() {
           {heading}
           {content}
         </ScrollView>
-        <BottomTabs items={PROVIDER_NAV} name={user?.full_name ?? 'You'} />
+        <BottomTabs items={PROVIDER_NAV} />
       </AppCard>
       {sheets}
     </>

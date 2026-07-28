@@ -284,7 +284,7 @@ export default function DashboardScreen() {
         <Label style={styles.sectionLabelSpaced}>Past visits</Label>
         {pastBlock}
       </ScrollView>
-      <BottomTabs items={PATIENT_NAV} name={user?.full_name ?? 'You'} />
+      <BottomTabs items={PATIENT_NAV} />
     </AppCard>
   );
 }

@@ -350,7 +350,7 @@ export default function ProviderScheduleScreen() {
           </View>
         )}
       </ScrollView>
-      <BottomTabs items={PROVIDER_NAV} name={user?.full_name ?? 'You'} />
+      <BottomTabs items={PROVIDER_NAV} />
     </AppCard>
   );
 }

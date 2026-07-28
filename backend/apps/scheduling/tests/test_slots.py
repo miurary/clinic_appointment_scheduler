@@ -380,8 +380,8 @@ class TestQueryCount:
             generate_slots(provider, monday, monday + timedelta(days=56))
 
 
-class TestProviderTimezone:
-    """The provider's own timezone drives everything, not the server's."""
+class TestClinicTimezone:
+    """The clinic's timezone drives everything, not the server's UTC."""
 
     @pytest.mark.parametrize(
         "provider_fixture,spec_fixture",
@@ -432,29 +432,34 @@ class TestProviderTimezone:
         """The corollary: 12:00 UTC is past closing time in Kolkata."""
         assert generate_slots(kolkata_provider, monday, monday) == []
 
-    def test_pacific_provider_generates_pacific_local_hours(
-        self, other_provider, other_provider_spec, monday, frozen_clock
+    def test_a_pacific_clinic_generates_pacific_local_hours(
+        self, other_provider, other_provider_spec, monday, frozen_clock, settings
     ):
+        settings.CLINIC_TIMEZONE = LA.key
+
         slots = generate_slots(other_provider, monday, monday)
 
         assert len(slots) == other_provider_spec.slot_count
         assert local_starts(slots, LA)[0] == hhmm(other_provider_spec.opens)
         assert local_ends(slots, LA)[-1] == hhmm(other_provider_spec.closes)
 
-    def test_pacific_provider_maps_to_the_right_utc_instant(
-        self, other_provider, monday, frozen_clock
+    def test_a_pacific_clinic_maps_to_the_right_utc_instant(
+        self, other_provider, monday, frozen_clock, settings
     ):
         """2 March is before the 2026 transition, so Los Angeles is on PST
-        (UTC-8) and its 10:00 opening is 18:00 UTC.
+        (UTC-8) and a 10:00 opening is 18:00 UTC.
 
-        A bug that fell back to the Eastern provider's zone would put this at
-        15:00 UTC instead.
+        A bug reading the provider's display preference instead of the clinic
+        zone would put this at 15:00 UTC, since the fixture user displays in
+        Eastern.
         """
+        settings.CLINIC_TIMEZONE = LA.key
+
         slots = generate_slots(other_provider, monday, monday)
 
         assert slots[0].start_at == utc(2026, 3, 2, 18, 0)
 
-    def test_two_providers_in_different_zones_do_not_interfere(
+    def test_two_providers_at_one_clinic_do_not_interfere(
         self,
         provider,
         provider_spec,
@@ -463,11 +468,65 @@ class TestProviderTimezone:
         monday,
         frozen_clock,
     ):
-        eastern = generate_slots(provider, monday, monday)
-        pacific = generate_slots(other_provider, monday, monday)
+        """Same zone, different windows and slot lengths.
 
-        assert len(eastern) == provider_spec.slot_count
-        assert len(pacific) == other_provider_spec.slot_count
+        They share a clinic zone by construction now, so what is left to leak
+        between them is the window and the slot length -- which the two specs
+        deliberately disagree about.
+        """
+        first = generate_slots(provider, monday, monday)
+        second = generate_slots(other_provider, monday, monday)
+
+        assert len(first) == provider_spec.slot_count
+        assert len(second) == other_provider_spec.slot_count
+        assert local_starts(first)[0] == hhmm(provider_spec.opens)
+        assert local_starts(second)[0] == hhmm(other_provider_spec.opens)
+
+
+class TestHoursAreClinicLocal:
+    """A provider's display preference must not move their working hours.
+
+    These were one field once, so changing how a provider wanted times *shown*
+    silently reinterpreted every AvailabilityRule and moved their whole week.
+    The zone that hours are written in now belongs to the clinic, which is the
+    only thing a provider cannot change about it.
+    """
+
+    def test_the_display_preference_cannot_move_a_single_slot(
+        self, provider, provider_spec, monday, frozen_clock
+    ):
+        before = generate_slots(provider, monday, monday)
+
+        provider.user.timezone = "Asia/Kolkata"
+        provider.user.save()
+        provider.refresh_from_db()
+
+        after = generate_slots(provider, monday, monday)
+
+        assert [slot.start_at for slot in after] == [slot.start_at for slot in before]
+        assert local_starts(after)[0] == hhmm(provider_spec.opens)
+
+    def test_hours_are_read_in_the_clinic_zone(
+        self, provider, provider_spec, monday, frozen_clock, settings
+    ):
+        """Moving the clinic moves everyone's hours, which is the intent."""
+        before = generate_slots(provider, monday, monday)
+
+        settings.CLINIC_TIMEZONE = LA.key
+
+        after = generate_slots(provider, monday, monday)
+
+        # Still opening at 9, but 9am Pacific -- three hours later in real time.
+        assert local_starts(after, LA)[0] == hhmm(provider_spec.opens)
+        assert after[0].start_at - before[0].start_at == timedelta(hours=3)
+
+    def test_every_provider_reads_the_same_zone(
+        self, provider, other_provider, settings
+    ):
+        settings.CLINIC_TIMEZONE = LA.key
+
+        assert provider.timezone == LA.key
+        assert other_provider.timezone == LA.key
 
 
 class TestDaylightSaving:

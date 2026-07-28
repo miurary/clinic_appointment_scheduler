@@ -479,12 +479,22 @@ class TestProviderDirectory:
         ids = {row["id"] for row in response.data["results"]}
         assert ids == {provider.pk, other_provider.pk}
 
-    def test_retrieves_one_provider(self, patient_client, provider, frozen_clock):
+    def test_retrieves_one_provider(
+        self, patient_client, provider, frozen_clock, settings
+    ):
+        """The zone reported is the clinic's, which is what the hours mean.
+
+        Set apart from the provider's display preference here so that a
+        serializer reading the wrong one cannot pass by coincidence.
+        """
+        provider.user.timezone = "Europe/London"
+        provider.user.save()
+
         response = patient_client.get(f"/api/providers/{provider.pk}/")
 
         assert response.status_code == 200
         assert response.data["full_name"] == provider.user.get_full_name()
-        assert response.data["timezone"] == provider.user.timezone
+        assert response.data["timezone"] == settings.CLINIC_TIMEZONE
 
     def test_filters_by_specialty(
         self,

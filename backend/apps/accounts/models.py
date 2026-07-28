@@ -1,5 +1,6 @@
 from zoneinfo import available_timezones
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -137,8 +138,15 @@ class ProviderProfile(models.Model):
 
     @property
     def timezone(self) -> str:
-        """Providers schedule in their own local time."""
-        return self.user.timezone
+        """The zone this provider's availability is written in.
+
+        Read by generate_slots, which needs a zone to turn an AvailabilityRule's
+        wall-clock "09:00" into an instant. Providers work clinic hours at a
+        clinic site, so that zone is the clinic's and not theirs: deliberately
+        *not* self.user.timezone, which is a display preference and must never
+        move when a provider actually works.
+        """
+        return settings.CLINIC_TIMEZONE
 
 
 class PatientProfile(models.Model):

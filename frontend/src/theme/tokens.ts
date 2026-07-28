@@ -132,6 +132,18 @@ export const radius = {
   brandMark: 7,
 } as const;
 
+/**
+ * Layout constants that set density rather than correctness.
+ *
+ * scheduleRow only stops an all-empty row collapsing to zero height; the grid
+ * stays aligned because each row renders its time label and day cells as
+ * siblings, not because these numbers agree with each other.
+ */
+export const layout = {
+  scheduleRow: 34,
+  scheduleGutter: 64,
+} as const;
+
 export const space = {
   xs: 4,
   sm: 8,
@@ -193,9 +205,16 @@ export const motion = {
 /** Above this width the desktop (D…) layouts render; below, the mobile (M…). */
 export const BREAKPOINT = 768;
 
-/** The clinic's own zone. Availability is authored here; storage is UTC. */
+/**
+ * The clinic's own zone, which is what every provider's hours are written in.
+ *
+ * The API reports it on each provider, so this is only the fallback for screens
+ * rendering before that arrives. It has to agree with the backend's
+ * CLINIC_TIMEZONE setting.
+ */
 export const CLINIC_TIMEZONE = 'America/Los_Angeles';
 
+/** Zones a person can choose to read times in. Purely a display preference. */
 export const TIMEZONES = [
   { id: 'America/Los_Angeles', short: 'PT', label: 'PT · Seattle' },
   { id: 'America/Denver', short: 'MT', label: 'MT · Denver' },

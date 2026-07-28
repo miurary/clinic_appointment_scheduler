@@ -25,7 +25,7 @@ import {
   labelFor,
   zonedTimeToUtc,
 } from '../../src/lib/datetime';
-import { color } from '../../src/theme/tokens';
+import { CLINIC_TIMEZONE, color } from '../../src/theme/tokens';
 import { useResponsive } from '../../src/theme/useResponsive';
 
 /** Monday-first, matching the backend's Weekday choices (Monday = 0). */
@@ -89,7 +89,9 @@ export default function ProviderAvailabilityScreen() {
   const [windowDraft, setWindowDraft] = useState<WindowDraft | null>(null);
   const [timeOffDraft, setTimeOffDraft] = useState<TimeOffDraft | null>(null);
 
-  const zone = user?.timezone ?? 'America/Los_Angeles';
+  // The clinic's zone. Every time on this screen is entered and displayed in
+  // it, so the provider never has to convert anything in their head.
+  const zone = profile?.timezone ?? CLINIC_TIMEZONE;
   const times = useMemo(() => timeOptions(), []);
   const dates = useMemo(() => dateOptions(), []);
 
@@ -259,6 +261,14 @@ export default function ProviderAvailabilityScreen() {
         </View>
       </Card>
       <Card style={styles.ruleCard}>
+        <Label>Clinic time</Label>
+        <Semi size={13.5}>{labelFor(zone)}</Semi>
+        <Muted size={12} style={styles.zoneNote}>
+          Your hours below are clinic hours. Change the timezone on your profile
+          to read them somewhere else — it will not change when you work.
+        </Muted>
+      </Card>
+      <Card style={styles.ruleCard}>
         <Label>Accepting new patients</Label>
         <View style={styles.acceptingRow}>
           <Muted size={13}>
@@ -416,7 +426,7 @@ export default function ProviderAvailabilityScreen() {
         </Note>
       ) : null}
       <Note tone="info" icon="🕓" style={styles.banner}>
-        Weekly hours are wall-clock times where you are, so they hold through
+        Weekly hours are clock times at the clinic, so 9 AM stays 9 AM through
         daylight saving. Time off is a specific moment and does not shift.
       </Note>
       {isDesktop ? (
@@ -630,5 +640,6 @@ const styles = StyleSheet.create({
   },
   loading: { paddingVertical: 60, alignItems: 'center' },
   columns: { flexDirection: 'row', gap: 10 },
+  zoneNote: { lineHeight: 17 },
   validation: { color: color.errorText, marginTop: 10 },
 });

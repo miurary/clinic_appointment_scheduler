@@ -34,7 +34,7 @@ import {
   minutesBetween,
   toDateParam,
 } from '../../src/lib/datetime';
-import { color } from '../../src/theme/tokens';
+import { CLINIC_TIMEZONE, color } from '../../src/theme/tokens';
 import { useResponsive } from '../../src/theme/useResponsive';
 
 /** A booked visit or an unfilled slot, merged into one ordered day list. */
@@ -52,7 +52,9 @@ export default function ProviderTodayScreen() {
   // A dropped request must not look like an empty calendar.
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const zone = user?.timezone ?? 'America/Los_Angeles';
+  // Clinic time. Reported by the API, with the constant covering the first
+  // render before that lands.
+  const [zone, setZone] = useState(CLINIC_TIMEZONE);
   const todayKey = localDateKey(new Date(), zone);
 
   const load = useCallback(async () => {
@@ -70,7 +72,8 @@ export default function ProviderTodayScreen() {
       setAppointments([...past.results, ...upcoming.results]);
 
       if (profile) {
-        const today = toDateParam(new Date(), zone);
+        setZone(profile.timezone);
+        const today = toDateParam(new Date(), profile.timezone);
         setOpenSlots(await api.providers.slots(profile.id, today, today));
       }
       setLoadError(null);

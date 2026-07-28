@@ -110,6 +110,13 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+# The zone the clinic physically operates in. Load-bearing rather than cosmetic:
+# AvailabilityRule stores bare wall-clock times ("09:00"), and this is what turns
+# them into real instants. A single-site clinic has one of these, so it is a
+# deployment setting and not a per-provider field -- a provider's own
+# User.timezone only ever changes how times are *displayed* to them.
+CLINIC_TIMEZONE = env("CLINIC_TIMEZONE", default="America/Los_Angeles")
+
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STORAGES = {

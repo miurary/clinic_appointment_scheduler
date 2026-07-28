@@ -10,6 +10,7 @@ export type User = {
   full_name: string;
   phone: string;
   role: Role;
+  /** A display preference. Changes how times are labelled, nothing else. */
   timezone: string;
   date_joined: string;
 };
@@ -17,6 +18,10 @@ export type User = {
 export type Provider = {
   id: number;
   full_name: string;
+  /**
+   * The clinic's zone, which is what this provider's availability times mean.
+   * Read-only, and the same for every provider — a clinic has one.
+   */
   timezone: string;
   specialty: string;
   bio: string;

@@ -190,10 +190,10 @@ export function addDays(date: Date, days: number): Date {
 /**
  * YYYY-MM-DD for an API date range.
  *
- * Pass the provider's timezone whenever the range is about their calendar:
- * the slots endpoint interprets these as provider-local dates, so a device in
- * Tokyo asking about a Los Angeles provider would otherwise be a day out.
- * Falls back to the device's calendar when no zone is given.
+ * Pass the clinic's timezone whenever the range is about a provider's calendar:
+ * the slots endpoint interprets these as clinic-local dates, so a device in
+ * Tokyo asking about a Seattle clinic would otherwise be a day out. Falls back
+ * to the device's calendar when no zone is given.
  */
 export function toDateParam(date: Date, timeZone?: string): string {
   if (timeZone) return localDateKey(date, timeZone);
@@ -281,6 +281,31 @@ export function zonedTimeToUtc(
   let instant = new Date(naiveAsUtc - zoneOffsetMs(new Date(naiveAsUtc), timeZone));
   instant = new Date(naiveAsUtc - zoneOffsetMs(instant, timeZone));
   return instant.toISOString();
+}
+
+/** "HH:MM" in 24-hour form, for keying a time-axis grid. */
+export function localTimeKey(iso: string, timeZone: string): string {
+  return formatter(timeZone, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+    .format(new Date(iso))
+    .replace('24:', '00:');
+}
+
+/** Minutes since local midnight, for ordering and axis maths. */
+export function minutesOfDay(iso: string, timeZone: string): number {
+  const [hour, minute] = localTimeKey(iso, timeZone).split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+/** "13:30" -> "1:30 PM" */
+export function prettyTimeKey(key: string): string {
+  const [hour, minute] = key.split(':').map(Number);
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelve}:${String(minute).padStart(2, '0')} ${suffix}`;
 }
 
 export function minutesBetween(startIso: string, endIso: string): number {

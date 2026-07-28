@@ -10,6 +10,7 @@ slot service gets exercised on every run.
 
 from datetime import date, time, timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -35,7 +36,6 @@ PROVIDERS = [
         "last_name": "Okafor",
         "specialty": "Family medicine",
         "location": "Ballard clinic",
-        "timezone": "America/New_York",
         "slot_duration_minutes": 30,
         "buffer_minutes": 5,
         "min_notice_minutes": 120,
@@ -47,7 +47,6 @@ PROVIDERS = [
         "last_name": "Raman",
         "specialty": "Dermatology",
         "location": "Downtown clinic",
-        "timezone": "America/Los_Angeles",
         "slot_duration_minutes": 60,
         "buffer_minutes": 0,
         "min_notice_minutes": 24 * 60,
@@ -63,7 +62,6 @@ PROVIDERS = [
         "last_name": "Nakamura",
         "specialty": "Paediatrics",
         "location": "Ballard clinic",
-        "timezone": "America/Chicago",
         "slot_duration_minutes": 20,
         "buffer_minutes": 10,
         "min_notice_minutes": 60,
@@ -143,13 +141,17 @@ class Command(BaseCommand):
         )
 
     def _create_provider(self, spec: dict) -> ProviderProfile:
-        user, created = User.objects.get_or_create(
+        user, created = User.objects.update_or_create(
             email=spec["email"],
             defaults={
                 "first_name": spec["first_name"],
                 "last_name": spec["last_name"],
                 "role": Role.PROVIDER,
-                "timezone": spec["timezone"],
+                # Providers work at the clinic, so their display preference
+                # starts there too. Patients below are deliberately scattered:
+                # that is where a display zone differing from the clinic's is
+                # the normal case rather than a mistake.
+                "timezone": settings.CLINIC_TIMEZONE,
             },
         )
         if created:

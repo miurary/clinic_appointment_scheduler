@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 
 import { api } from '../../src/api/endpoints';
-import type { Appointment, Slot } from '../../src/api/types';
+import type { Appointment, ProviderProfile, Slot } from '../../src/api/types';
 import { Avatar, initialsFor, Note, tintFor } from '../../src/components/Bits';
 import { BottomTabs, PROVIDER_NAV, TopNav } from '../../src/components/Nav';
 import { AppCard, Card } from '../../src/components/Surface';
@@ -30,11 +30,20 @@ import {
   keyWeekdayAbbr,
   keyWeekLabel,
   localDateKey,
+  localTimeKey,
   minutesBetween,
+  minutesOfDay,
+  prettyTimeKey,
   startOfWeekKey,
   todayKeyIn,
 } from '../../src/lib/datetime';
-import { color, visitTint, type VisitTintName } from '../../src/theme/tokens';
+import {
+  CLINIC_TIMEZONE,
+  color,
+  layout,
+  visitTint,
+  type VisitTintName,
+} from '../../src/theme/tokens';
 import { useResponsive } from '../../src/theme/useResponsive';
 
 const WORKING_DAYS = 5;
@@ -53,16 +62,20 @@ export default function ProviderScheduleScreen() {
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [openSlots, setOpenSlots] = useState<Slot[]>([]);
+  const [profile, setProfile] = useState<ProviderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   // A dropped request must not look like an empty calendar.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
 
-  const zone = user?.timezone ?? 'America/Los_Angeles';
+  // Clinic time, matching the availability screen. A provider's day is the
+  // clinic's day, so drawing this grid in anything else would put their hours
+  // at times they never entered.
+  const zone = profile?.timezone ?? CLINIC_TIMEZONE;
 
-  // Plain calendar dates in the provider's own zone, so the columns cannot
-  // drift when the device is set to a different timezone than the clinic.
+  // Plain calendar dates in the clinic's zone, so the columns cannot drift when
+  // the device is set to a different timezone.
   const weekStartKey = useMemo(
     () => addDaysToKey(startOfWeekKey(todayKeyIn(zone)), weekOffset * 7),
     [zone, weekOffset],
@@ -76,19 +89,16 @@ export default function ProviderScheduleScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [upcoming, past, profile] = await Promise.all([
+      const [upcoming, past, me] = await Promise.all([
         api.appointments.list('upcoming'),
         api.appointments.list('past'),
         api.auth.myProviderProfile().catch(() => null),
       ]);
       setAppointments([...past.results, ...upcoming.results]);
-      if (profile) {
+      setProfile(me);
+      if (me) {
         setOpenSlots(
-          await api.providers.slots(
-            profile.id,
-            dayKeys[0],
-            dayKeys[WORKING_DAYS - 1],
-          ),
+          await api.providers.slots(me.id, dayKeys[0], dayKeys[WORKING_DAYS - 1]),
         );
       }
       setLoadError(null);
@@ -134,6 +144,78 @@ export default function ProviderScheduleScreen() {
   }, [openSlots, zone]);
 
   const activeDayKey = selectedDayKey ?? dayKeys[0];
+
+  /**
+   * The desktop grid is a time axis, not a list.
+   *
+   * It previously rendered the first four open slots per column and dropped the
+   * rest, so a full working day looked like it ended at 10:30. Rows now run
+   * from the earliest to the latest thing happening that week, at the
+   * provider's own slot length, and every cell is accounted for: a visit, an
+   * open slot, or not-working.
+   */
+  const rowStep = profile?.slot_duration_minutes ?? 30;
+
+  const rowTimes = useMemo(() => {
+    const minutes: number[] = [];
+    for (const visit of appointments) {
+      if (visit.status === 'cancelled') continue;
+      minutes.push(minutesOfDay(visit.start_at, zone));
+      minutes.push(minutesOfDay(visit.end_at, zone) || 24 * 60);
+    }
+    for (const slot of openSlots) {
+      minutes.push(minutesOfDay(slot.start_at, zone));
+      minutes.push(minutesOfDay(slot.end_at, zone) || 24 * 60);
+    }
+    if (minutes.length === 0) return [];
+
+    // Snap outward to whole rows so nothing is clipped at either end.
+    const start = Math.floor(Math.min(...minutes) / rowStep) * rowStep;
+    const end = Math.ceil(Math.max(...minutes) / rowStep) * rowStep;
+
+    const rows: string[] = [];
+    for (let minute = start; minute < end; minute += rowStep) {
+      rows.push(
+        `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(
+          minute % 60,
+        ).padStart(2, '0')}`,
+      );
+    }
+    return rows;
+  }, [appointments, openSlots, zone, rowStep]);
+
+  /** cell lookup: `${dayKey} ${HH:MM}` -> what occupies that slot of time. */
+  const cells = useMemo(() => {
+    const map = new Map<
+      string,
+      { kind: 'open' } | { kind: 'visit'; visit: Appointment; first: boolean }
+    >();
+
+    for (const slot of openSlots) {
+      const key = `${localDateKey(slot.start_at, zone)} ${localTimeKey(slot.start_at, zone)}`;
+      map.set(key, { kind: 'open' });
+    }
+
+    // A visit longer than one row occupies every row it covers, so the grid
+    // does not show "not working" in the middle of an appointment.
+    for (const visit of appointments) {
+      if (visit.status === 'cancelled') continue;
+      const dayKey = localDateKey(visit.start_at, zone);
+      const from = minutesOfDay(visit.start_at, zone);
+      const to = minutesOfDay(visit.end_at, zone) || 24 * 60;
+      for (let minute = from; minute < to; minute += rowStep) {
+        const time = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(
+          minute % 60,
+        ).padStart(2, '0')}`;
+        map.set(`${dayKey} ${time}`, {
+          kind: 'visit',
+          visit,
+          first: minute === from,
+        });
+      }
+    }
+    return map;
+  }, [appointments, openSlots, zone, rowStep]);
 
   const errorBanner = loadError ? (
     <Note
@@ -192,62 +274,67 @@ export default function ProviderScheduleScreen() {
             <View style={styles.loading}>
               <ActivityIndicator color={color.primary} />
             </View>
+          ) : rowTimes.length === 0 ? (
+            <Card dashed style={styles.emptyWeek}>
+              <Muted size={14}>Nothing scheduled or open this week.</Muted>
+            </Card>
           ) : (
             <View style={styles.grid}>
-              {dayKeys.map((key) => {
-                const visits = visitsByDay.get(key) ?? [];
-                const open = openByDay.get(key) ?? [];
-                return (
-                  <View key={key} style={styles.gridColumn}>
-                    <View style={styles.gridHead}>
-                      <Label>{keyWeekdayAbbr(key)}</Label>
-                      <Strong size={15}>{keyShortDate(key)}</Strong>
-                    </View>
-                    <View style={styles.gridCells}>
-                      {visits.length === 0 && open.length === 0 ? (
-                        <View style={styles.blockedCell}>
-                          <Muted size={11.5}>Not working</Muted>
-                        </View>
-                      ) : (
-                        <>
-                          {visits.map((visit) => {
-                            const name =
-                              visit.patient.full_name || visit.patient.email;
-                            const palette = visitTint[tintForVisit(name)];
-                            return (
-                              <View
-                                key={visit.id}
-                                style={[
-                                  styles.visitBlock,
-                                  {
-                                    backgroundColor: palette.bg,
-                                    borderColor: palette.border,
-                                  },
-                                ]}
-                              >
-                                <Semi size={11.5} style={{ color: palette.fg }}>
-                                  {formatTime(visit.start_at, zone)}
-                                </Semi>
-                                <Semi size={13} style={{ color: palette.fg }}>
-                                  {name}
-                                </Semi>
-                                <Body size={11.5} style={{ color: palette.sub }}>
-                                  {visit.reason || 'Visit'}
-                                </Body>
-                              </View>
-                            );
-                          })}
-                          {open.slice(0, 4).map((slot) => (
-                            <View key={slot.start_at} style={styles.openCell}>
-                              <Muted size={11.5}>{formatTime(slot.start_at, zone)}</Muted>
-                            </View>
-                          ))}
-                        </>
-                      )}
-                    </View>
+              {/* Header row: the gutter is empty, then one cell per day. */}
+              <View style={styles.gridRow}>
+                <View style={styles.gutterCell} />
+                {dayKeys.map((dayKey) => (
+                  <View key={dayKey} style={styles.headCell}>
+                    <Label>{keyWeekdayAbbr(dayKey)}</Label>
+                    <Strong size={15}>{keyShortDate(dayKey)}</Strong>
                   </View>
-                );
-              })}
+                ))}
+              </View>
+
+              {rowTimes.map((time) => (
+                <View key={time} style={styles.gridRow}>
+                  <View style={styles.gutterCell}>
+                    <Muted size={11}>{prettyTimeKey(time)}</Muted>
+                  </View>
+
+                  {dayKeys.map((dayKey) => {
+                    const cell = cells.get(`${dayKey} ${time}`);
+
+                    if (!cell) {
+                      return <View key={dayKey} style={styles.blockedCell} />;
+                    }
+
+                    if (cell.kind === 'open') {
+                      return <View key={dayKey} style={styles.openCell} />;
+                    }
+
+                    const name =
+                      cell.visit.patient.full_name || cell.visit.patient.email;
+                    const palette = visitTint[tintForVisit(name)];
+                    return (
+                      <View
+                        key={dayKey}
+                        style={[
+                          styles.visitCell,
+                          {
+                            backgroundColor: palette.bg,
+                            borderColor: palette.border,
+                            // Only the first row of a visit draws the top edge,
+                            // so a long appointment reads as one block.
+                            borderTopWidth: cell.first ? 1 : 0,
+                          },
+                        ]}
+                      >
+                        {cell.first ? (
+                          <Semi size={11} numberOfLines={1} style={{ color: palette.fg }}>
+                            {name}
+                          </Semi>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
             </View>
           )}
 
@@ -413,23 +500,38 @@ const styles = StyleSheet.create({
   },
   weekLabel: { minWidth: 130, textAlign: 'center' },
   loading: { paddingVertical: 60, alignItems: 'center' },
-  grid: { flexDirection: 'row', gap: 8, marginTop: 24 },
-  gridColumn: { flex: 1 },
-  gridHead: { alignItems: 'center', gap: 2, marginBottom: 10 },
-  gridCells: { gap: 6 },
-  visitBlock: { borderWidth: 1, borderRadius: 10, padding: 10, gap: 1 },
+  grid: { marginTop: 24 },
+  // The time label and that time's five day cells are siblings in one row, so
+  // they line up structurally. No height has to be kept in sync to match them.
+  gridRow: { flexDirection: 'row', gap: 2, minHeight: layout.scheduleRow },
+  gutterCell: {
+    width: layout.scheduleGutter,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingRight: 8,
+  },
+  headCell: { flex: 1, alignItems: 'center', gap: 2, paddingBottom: 8 },
+  visitCell: {
+    flex: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
   openCell: {
+    flex: 1,
     backgroundColor: color.gridWorking,
-    borderRadius: 8,
-    paddingVertical: 9,
-    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderColor: color.card,
   },
   blockedCell: {
+    flex: 1,
     backgroundColor: color.gridBlocked,
-    borderRadius: 8,
-    paddingVertical: 20,
-    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderColor: color.card,
   },
+  emptyWeek: { marginTop: 24, alignItems: 'center', paddingVertical: 40 },
   legend: { flexDirection: 'row', gap: 20, marginTop: 22 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   legendSwatch: { width: 14, height: 14, borderRadius: 4, borderWidth: 1 },

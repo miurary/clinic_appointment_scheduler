@@ -117,7 +117,10 @@ class ProviderProfileSerializer(serializers.ModelSerializer):
     """Full view, for a provider managing their own settings."""
 
     user = UserSerializer(read_only=True)
-    timezone = serializers.CharField(source="user.timezone", read_only=True)
+    # The clinic's zone, which is what this provider's availability times mean.
+    # Read-only for everyone: it is a deployment setting, not a preference, so a
+    # provider changing it would be changing it for the whole clinic.
+    timezone = serializers.CharField(read_only=True)
 
     class Meta:
         model = ProviderProfile
@@ -140,7 +143,10 @@ class ProviderPublicSerializer(serializers.ModelSerializer):
     """Trimmed view for patients browsing providers."""
 
     full_name = serializers.CharField(source="user.get_full_name", read_only=True)
-    timezone = serializers.CharField(source="user.timezone", read_only=True)
+    # The clinic's zone, not anybody's display preference: this is what the
+    # patient's booking grid groups days by, so that a provider's Monday is the
+    # same span of hours no matter where the patient is reading it from.
+    timezone = serializers.CharField(read_only=True)
 
     class Meta:
         model = ProviderProfile

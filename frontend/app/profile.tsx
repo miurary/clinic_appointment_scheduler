@@ -19,7 +19,7 @@ import { useToast } from '../src/components/Toast';
 import { Display, Label, Muted, Strong } from '../src/components/Typography';
 import { useAuth } from '../src/lib/auth';
 import { labelFor } from '../src/lib/datetime';
-import { TIMEZONES } from '../src/theme/tokens';
+import { CLINIC_TIMEZONE, TIMEZONES } from '../src/theme/tokens';
 import { useResponsive } from '../src/theme/useResponsive';
 
 export default function ProfileScreen() {
@@ -33,21 +33,30 @@ export default function ProfileScreen() {
   const isPatient = user?.role === 'patient';
 
   const [patientProfile, setPatientProfile] = useState<PatientProfile | null>(null);
+  // Providers have no display preference to set, so what they see here is the
+  // clinic's zone. The constant covers the render before the profile lands.
+  const [clinicZone, setClinicZone] = useState(CLINIC_TIMEZONE);
   const [dobDraft, setDobDraft] = useState<{
     year: number;
     month: number;
     day: number;
   } | null>(null);
 
-  // Only patients have this record; providers would get a 403.
+  // Each role can only read its own profile; the other endpoint 403s.
   useFocusEffect(
     useCallback(() => {
-      if (!isPatient) return;
-      api.auth
-        .myPatientProfile()
-        .then(setPatientProfile)
-        .catch(() => setPatientProfile(null));
-    }, [isPatient]),
+      if (isPatient) {
+        api.auth
+          .myPatientProfile()
+          .then(setPatientProfile)
+          .catch(() => setPatientProfile(null));
+      } else if (user?.role === 'provider') {
+        api.auth
+          .myProviderProfile()
+          .then((profile) => setClinicZone(profile.timezone))
+          .catch(() => {});
+      }
+    }, [isPatient, user?.role]),
   );
 
   const years = useMemo(() => {
@@ -138,7 +147,11 @@ export default function ProfileScreen() {
             label="Role"
             value={user?.role === 'provider' ? 'Provider' : 'Patient'}
           />
-          <DetailRow label="Timezone" value={labelFor(user?.timezone ?? '')} />
+          {isPatient ? (
+            <DetailRow label="Times shown in" value={labelFor(user?.timezone ?? '')} />
+          ) : (
+            <DetailRow label="Clinic time" value={labelFor(clinicZone)} />
+          )}
           {isPatient ? (
             <View style={styles.dobRow}>
               <Muted size={14}>Date of birth</Muted>
@@ -152,21 +165,25 @@ export default function ProfileScreen() {
         </View>
       </Card>
 
-      <Label style={styles.sectionLabel}>Show times in</Label>
-      <Muted size={13} style={styles.note}>
-        A display preference only — it never changes when an appointment
-        actually happens.
-      </Muted>
-      <View style={styles.chipRow}>
-        {TIMEZONES.map((zone) => (
-          <Chip
-            key={zone.id}
-            label={zone.label}
-            selected={user?.timezone === zone.id}
-            onPress={() => changeTimezone(zone.id)}
-          />
-        ))}
-      </View>
+      {isPatient ? (
+        <>
+          <Label style={styles.sectionLabel}>Show times in</Label>
+          <Muted size={13} style={styles.note}>
+            A display preference only — it never changes when an appointment
+            actually happens.
+          </Muted>
+          <View style={styles.chipRow}>
+            {TIMEZONES.map((zone) => (
+              <Chip
+                key={zone.id}
+                label={zone.label}
+                selected={user?.timezone === zone.id}
+                onPress={() => changeTimezone(zone.id)}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
 
       <GhostButton
         label="Sign out"

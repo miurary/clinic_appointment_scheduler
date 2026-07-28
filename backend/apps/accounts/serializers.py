@@ -75,7 +75,10 @@ class RegistrationSerializer(serializers.ModelSerializer):
         # A provider without a profile would break every slot lookup, so the
         # two writes have to succeed or fail together.
         if user.is_provider:
-            ProviderProfile.objects.create(user=user)
+            # Closed until they set their hours. A brand new provider has no
+            # availability rules, so listing them as accepting bookings puts a
+            # name in the patient's picker that can never have a free slot.
+            ProviderProfile.objects.create(user=user, accepting_new_patients=False)
         else:
             PatientProfile.objects.create(user=user)
         return user

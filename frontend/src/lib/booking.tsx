@@ -24,6 +24,13 @@ type BookingState = {
   rescheduling: Appointment | null;
   /** The appointment just created or moved, for the success screen. */
   result: Appointment | null;
+  /**
+   * Whether `result` came from a reschedule. Kept separately so `rescheduling`
+   * can be cleared the moment the move completes: leaving it set meant the
+   * next visit to Book still showed the rescheduling banner and PATCHed the
+   * old appointment instead of creating a new one.
+   */
+  resultWasReschedule: boolean;
   /** A slot that vanished under us: struck through, selection cleared. */
   takenSlot: string | null;
 };
@@ -55,6 +62,7 @@ const initialState: BookingState = {
   timezone: CLINIC_TIMEZONE,
   rescheduling: null,
   result: null,
+  resultWasReschedule: false,
   takenSlot: null,
 };
 
@@ -103,7 +111,15 @@ export function BookingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const complete = useCallback((appointment: Appointment) => {
-    setState((prev) => ({ ...prev, result: appointment, slot: null, takenSlot: null }));
+    setState((prev) => ({
+      ...prev,
+      result: appointment,
+      resultWasReschedule: prev.rescheduling !== null,
+      // The move is done, so the flow is no longer a reschedule.
+      rescheduling: null,
+      slot: null,
+      takenSlot: null,
+    }));
   }, []);
 
   const reset = useCallback(() => setState(initialState), []);

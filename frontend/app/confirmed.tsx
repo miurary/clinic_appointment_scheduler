@@ -28,7 +28,7 @@ export default function ConfirmedScreen() {
   const booking = useBooking();
 
   const appointment = booking.result;
-  const wasReschedule = booking.rescheduling !== null;
+  const wasReschedule = booking.resultWasReschedule;
 
   if (!appointment) {
     return (

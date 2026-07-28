@@ -20,19 +20,20 @@ import { Body, Display, Label, Muted, Semi, Strong } from '../src/components/Typ
 import { useAuth } from '../src/lib/auth';
 import { useBooking } from '../src/lib/booking';
 import {
-  addDays,
-  formatDayNumber,
+  addDaysToKey,
   formatShortDate,
   formatTime,
-  formatWeekdayAbbr,
   formatWeekdayShort,
+  keyDayNumber,
+  keyShortDate,
+  keyWeekdayAbbr,
+  keyWeekLabel,
   labelFor,
   localDateKey,
   shortLabelFor,
   splitByHalfDay,
-  startOfWeek,
-  toDateParam,
-  weekLabel,
+  startOfWeekKey,
+  todayKeyIn,
 } from '../src/lib/datetime';
 import { CLINIC_TIMEZONE, color, TIMEZONES } from '../src/theme/tokens';
 import { useResponsive } from '../src/theme/useResponsive';
@@ -76,13 +77,21 @@ export default function BookScreen() {
   const viewZone = booking.timezone;
   const provider = booking.provider;
 
-  const weekStart = useMemo(
-    () => addDays(startOfWeek(new Date()), weekOffset * 7),
-    [weekOffset],
+  /**
+   * The week is a run of calendar dates in the PROVIDER's zone -- their Monday,
+   * which is what the slots endpoint means by a date and what the columns are
+   * labelled with. Times inside those columns still render in the patient's
+   * chosen zone, which is the only thing the timezone chips change.
+   */
+  const providerZone = provider?.timezone ?? CLINIC_TIMEZONE;
+  const weekStartKey = useMemo(
+    () => addDaysToKey(startOfWeekKey(todayKeyIn(providerZone)), weekOffset * 7),
+    [providerZone, weekOffset],
   );
-  const weekDays = useMemo(
-    () => Array.from({ length: WORKING_DAYS }, (_, i) => addDays(weekStart, i)),
-    [weekStart],
+  const dayKeys = useMemo(
+    () =>
+      Array.from({ length: WORKING_DAYS }, (_, i) => addDaysToKey(weekStartKey, i)),
+    [weekStartKey],
   );
 
   // Providers, once.
@@ -114,9 +123,8 @@ export default function BookScreen() {
     try {
       const found = await api.providers.slots(
         provider.id,
-        // Provider-local: the endpoint reads these as dates on their calendar.
-        toDateParam(weekDays[0], provider.timezone),
-        toDateParam(weekDays[WORKING_DAYS - 1], provider.timezone),
+        dayKeys[0],
+        dayKeys[WORKING_DAYS - 1],
       );
       setSlots(found);
       setLoadError(null);
@@ -126,28 +134,27 @@ export default function BookScreen() {
     } finally {
       setLoading(false);
     }
-  }, [provider, weekDays]);
+  }, [provider, dayKeys]);
 
   useEffect(() => {
     loadSlots();
   }, [loadSlots]);
 
-  /** Slots bucketed by the day they fall on *in the viewer's zone*. */
+  /**
+   * Bucketed by the provider's day, matching the columns. Grouping by the
+   * viewer's zone instead would move a slot into a neighbouring column
+   * whenever the patient looked at the calendar from a different zone.
+   */
   const byDay = useMemo(() => {
     const map = new Map<string, Slot[]>();
     for (const slot of slots) {
-      const key = localDateKey(slot.start_at, viewZone);
+      const key = localDateKey(slot.start_at, providerZone);
       const list = map.get(key);
       if (list) list.push(slot);
       else map.set(key, [slot]);
     }
     return map;
-  }, [slots, viewZone]);
-
-  const dayKeys = useMemo(
-    () => weekDays.map((day) => localDateKey(day, viewZone)),
-    [weekDays, viewZone],
-  );
+  }, [slots, providerZone]);
 
   // Falls back when the remembered day is not in the current week, which is
   // what happens the moment the patient steps forward a week.
@@ -304,13 +311,23 @@ export default function BookScreen() {
                 />
               ))}
             </FilterGroup>
-            <FilterGroup label="Provider">
+            {/* Locked during a reschedule: the API moves an appointment within
+                its own provider's calendar and takes no provider argument, so
+                switching here would silently move the ORIGINAL provider to a
+                time picked from someone else's availability. */}
+            <FilterGroup
+              label={booking.rescheduling ? 'Provider (locked)' : 'Provider'}
+            >
               {providers.map((candidate) => (
                 <Chip
                   key={candidate.id}
                   label={candidate.full_name}
                   selected={provider?.id === candidate.id}
-                  onPress={() => booking.setProvider(candidate)}
+                  onPress={
+                    booking.rescheduling
+                      ? undefined
+                      : () => booking.setProvider(candidate)
+                  }
                 />
               ))}
             </FilterGroup>
@@ -339,7 +356,7 @@ export default function BookScreen() {
                     onPress={() => setWeekOffset((w) => Math.max(0, w - 1))}
                   />
                   <Semi size={14} style={styles.weekLabel}>
-                    {weekLabel(weekStart)}
+                    {keyWeekLabel(weekStartKey)}
                   </Semi>
                   <WeekArrow label="›" onPress={() => setWeekOffset((w) => w + 1)} />
                 </View>
@@ -359,16 +376,13 @@ export default function BookScreen() {
                 />
               ) : (
                 <View style={styles.dayGrid}>
-                  {weekDays.map((day, index) => {
-                    const key = dayKeys[index];
+                  {dayKeys.map((key) => {
                     const list = byDay.get(key) ?? [];
                     return (
                       <View key={key} style={styles.dayColumn}>
                         <View style={styles.dayHead}>
-                          <Label>{formatWeekdayAbbr(day.toISOString(), viewZone)}</Label>
-                          <Strong size={15}>
-                            {formatShortDate(day.toISOString(), viewZone)}
-                          </Strong>
+                          <Label>{keyWeekdayAbbr(key)}</Label>
+                          <Strong size={15}>{keyShortDate(key)}</Strong>
                         </View>
                         <View style={styles.daySlots}>
                           {list.length === 0 ? (
@@ -475,16 +489,20 @@ export default function BookScreen() {
                 {provider.specialty} · {provider.slot_duration_minutes} min
               </Muted>
             </View>
-            <Pressable
-              onPress={() => setProviderSheetOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Change provider"
-              hitSlop={8}
-            >
-              <Semi size={12.5} style={{ color: color.link }}>
-                Change
-              </Semi>
-            </Pressable>
+            {/* Same reason as the desktop chips: a reschedule cannot move
+                across providers. */}
+            {booking.rescheduling ? null : (
+              <Pressable
+                onPress={() => setProviderSheetOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Change provider"
+                hitSlop={8}
+              >
+                <Semi size={12.5} style={{ color: color.link }}>
+                  Change
+                </Semi>
+              </Pressable>
+            )}
           </Card>
         ) : null}
 
@@ -515,15 +533,14 @@ export default function BookScreen() {
             onPress={() => setWeekOffset((w) => Math.max(0, w - 1))}
           />
           <Semi size={13.5} style={styles.weekLabel}>
-            {weekLabel(weekStart)}
+            {keyWeekLabel(weekStartKey)}
           </Semi>
           <WeekArrow label="›" onPress={() => setWeekOffset((w) => w + 1)} />
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.dayPills}>
-            {weekDays.map((day, index) => {
-              const key = dayKeys[index];
+            {dayKeys.map((key) => {
               const active = key === activeDayKey;
               const count = (byDay.get(key) ?? []).length;
               return (
@@ -542,10 +559,10 @@ export default function BookScreen() {
                     size={11}
                     style={{ color: active ? color.white : color.inkFaint }}
                   >
-                    {formatWeekdayAbbr(day.toISOString(), viewZone)}
+                    {keyWeekdayAbbr(key)}
                   </Body>
                   <Strong size={16} style={{ color: active ? color.white : color.ink }}>
-                    {formatDayNumber(day.toISOString(), viewZone)}
+                    {keyDayNumber(key)}
                   </Strong>
                 </Pressable>
               );

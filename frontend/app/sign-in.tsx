@@ -18,6 +18,7 @@ import { Field, Segmented } from '../src/components/Form';
 import { PageBackground } from '../src/components/Surface';
 import { Body, Display, Link, Muted } from '../src/components/Typography';
 import { useAuth } from '../src/lib/auth';
+import { deviceTimezone } from '../src/lib/datetime';
 import { color, radius, shadow } from '../src/theme/tokens';
 import { useResponsive } from '../src/theme/useResponsive';
 
@@ -31,7 +32,7 @@ const BLURB =
 
 export default function SignInScreen() {
   const router = useRouter();
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, signOut } = useAuth();
   const { isDesktop } = useResponsive();
 
   const [mode, setMode] = useState<Mode>('signin');
@@ -56,7 +57,27 @@ export default function SignInScreen() {
               first_name: firstName.trim(),
               last_name: lastName.trim(),
               role,
+              timezone: deviceTimezone(),
             });
+
+      // The toggle is a claim about which kind of account this is, and it was
+      // previously ignored on sign-in -- you could sit on "Patient" and land in
+      // the provider app. Clinic staff have no tab of their own, so they are
+      // exempt rather than locked out.
+      if (
+        mode === 'signin' &&
+        (user.role === 'patient' || user.role === 'provider') &&
+        user.role !== role
+      ) {
+        await signOut();
+        setError(
+          `That's a ${user.role} account. Switch to ${
+            user.role === 'provider' ? 'Provider' : 'Patient'
+          } and try again.`,
+        );
+        return;
+      }
+
       router.replace(user.role === 'provider' ? '/provider' : '/dashboard');
     } catch (caught) {
       setError(

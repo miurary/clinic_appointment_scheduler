@@ -91,6 +91,9 @@ export default function DashboardScreen() {
   );
 
   const next = upcoming[0] ?? null;
+  // Everything after the soonest. Previously these were fetched and silently
+  // dropped, so a patient with two bookings saw one and no sign of the other.
+  const laterVisits = upcoming.slice(1);
 
   const onReschedule = (appointment: Appointment) => {
     booking.startReschedule(appointment);
@@ -204,6 +207,35 @@ export default function DashboardScreen() {
     </Card>
   );
 
+  const laterBlock =
+    laterVisits.length === 0 ? null : (
+      <>
+        <Label style={styles.sectionLabelSpaced}>
+          Also booked ({laterVisits.length})
+        </Label>
+        <RowGroup>
+          {laterVisits.map((visit) => (
+            <View key={visit.id} style={styles.pastRow}>
+              <View style={styles.flexShrink}>
+                <Semi size={14.5}>{visit.reason || 'Visit'}</Semi>
+                <Muted size={13}>
+                  {visit.provider.full_name} ·{' '}
+                  {formatShortDate(visit.start_at, zone)} ·{' '}
+                  {formatTime(visit.start_at, zone)} {shortLabelFor(zone)}
+                </Muted>
+              </View>
+              <GhostButton
+                label="Cancel"
+                size="sm"
+                danger
+                onPress={() => onCancel(visit)}
+              />
+            </View>
+          ))}
+        </RowGroup>
+      </>
+    );
+
   const pastBlock =
     past.length === 0 ? (
       <Card dashed style={styles.emptyPast}>
@@ -251,6 +283,7 @@ export default function DashboardScreen() {
             <View style={styles.mainColumn}>
               <Label style={styles.sectionLabel}>Upcoming</Label>
               {upcomingBlock}
+              {laterBlock}
               <Label style={styles.sectionLabelSpaced}>Past visits</Label>
               {pastBlock}
             </View>
@@ -327,6 +360,7 @@ export default function DashboardScreen() {
 
         <Label style={styles.sectionLabel}>Upcoming</Label>
         {upcomingBlock}
+        {laterBlock}
 
         <Label style={styles.sectionLabelSpaced}>Past visits</Label>
         {pastBlock}

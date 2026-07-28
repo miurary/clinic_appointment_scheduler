@@ -85,6 +85,19 @@ export function localDateKey(iso: string | Date, timeZone: string): string {
   }).format(date);
 }
 
+/**
+ * The device's own IANA zone, used as the default when creating an account.
+ * Without it every new user inherits the model default and sees their times in
+ * New York regardless of where they actually are.
+ */
+export function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || CLINIC_TIMEZONE;
+  } catch {
+    return CLINIC_TIMEZONE;
+  }
+}
+
 export function shortLabelFor(timeZone: string): string {
   return TIMEZONES.find((zone) => zone.id === timeZone)?.short ?? '';
 }
@@ -106,6 +119,58 @@ export function clinicNote(iso: string, patientZone: string): string | null {
   const clinic = `${formatTime(iso, CLINIC_TIMEZONE)} ${shortLabelFor(CLINIC_TIMEZONE)}`;
   return `${theirs} is ${clinic} at the Seattle clinic — the same moment, shown in your timezone.`;
 }
+
+/**
+ * Calendar-date helpers, working on "YYYY-MM-DD" strings.
+ *
+ * A week of columns is a run of calendar dates, not a run of instants. Deriving
+ * them by converting local-midnight Date objects into a display zone shifts the
+ * whole week by a day whenever the device is ahead of that zone -- the columns
+ * then key to different days than the slots inside them. Keeping the week as
+ * plain strings removes the class of bug entirely.
+ */
+
+/** Parsed at midday UTC, far from any midnight or DST edge. */
+function keyToDate(key: string): Date {
+  const [year, month, day] = key.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12));
+}
+
+export function todayKeyIn(timeZone: string): string {
+  return localDateKey(new Date(), timeZone);
+}
+
+/** Monday of the week containing `key`. */
+export function startOfWeekKey(key: string): string {
+  const date = keyToDate(key);
+  const weekday = (date.getUTCDay() + 6) % 7; // Monday = 0
+  date.setUTCDate(date.getUTCDate() - weekday);
+  return date.toISOString().slice(0, 10);
+}
+
+export function addDaysToKey(key: string, days: number): string {
+  const date = keyToDate(key);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Formats a calendar date without letting a timezone shift it. */
+export function formatKey(
+  key: string,
+  options: Intl.DateTimeFormatOptions,
+): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', ...options }).format(
+    keyToDate(key),
+  );
+}
+
+export const keyWeekdayAbbr = (key: string) =>
+  formatKey(key, { weekday: 'short' }).toUpperCase();
+export const keyShortDate = (key: string) =>
+  formatKey(key, { month: 'short', day: 'numeric' });
+export const keyDayNumber = (key: string) => formatKey(key, { day: 'numeric' });
+export const keyWeekLabel = (key: string) =>
+  `Week of ${formatKey(key, { month: 'short', day: 'numeric' })}`;
 
 /** Monday of the week containing `date`, as a local calendar date. */
 export function startOfWeek(date: Date): Date {

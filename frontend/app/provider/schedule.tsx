@@ -23,16 +23,16 @@ import {
 } from '../../src/components/Typography';
 import { useAuth } from '../../src/lib/auth';
 import {
-  addDays,
-  formatDayNumber,
-  formatShortDate,
+  addDaysToKey,
   formatTime,
-  formatWeekdayAbbr,
+  keyDayNumber,
+  keyShortDate,
+  keyWeekdayAbbr,
+  keyWeekLabel,
   localDateKey,
   minutesBetween,
-  startOfWeek,
-  toDateParam,
-  weekLabel,
+  startOfWeekKey,
+  todayKeyIn,
 } from '../../src/lib/datetime';
 import { color, visitTint, type VisitTintName } from '../../src/theme/tokens';
 import { useResponsive } from '../../src/theme/useResponsive';
@@ -61,17 +61,16 @@ export default function ProviderScheduleScreen() {
 
   const zone = user?.timezone ?? 'America/Los_Angeles';
 
-  const weekStart = useMemo(
-    () => addDays(startOfWeek(new Date()), weekOffset * 7),
-    [weekOffset],
-  );
-  const weekDays = useMemo(
-    () => Array.from({ length: WORKING_DAYS }, (_, i) => addDays(weekStart, i)),
-    [weekStart],
+  // Plain calendar dates in the provider's own zone, so the columns cannot
+  // drift when the device is set to a different timezone than the clinic.
+  const weekStartKey = useMemo(
+    () => addDaysToKey(startOfWeekKey(todayKeyIn(zone)), weekOffset * 7),
+    [zone, weekOffset],
   );
   const dayKeys = useMemo(
-    () => weekDays.map((day) => localDateKey(day, zone)),
-    [weekDays, zone],
+    () =>
+      Array.from({ length: WORKING_DAYS }, (_, i) => addDaysToKey(weekStartKey, i)),
+    [weekStartKey],
   );
 
   const load = useCallback(async () => {
@@ -87,8 +86,8 @@ export default function ProviderScheduleScreen() {
         setOpenSlots(
           await api.providers.slots(
             profile.id,
-            toDateParam(weekDays[0], zone),
-            toDateParam(weekDays[WORKING_DAYS - 1], zone),
+            dayKeys[0],
+            dayKeys[WORKING_DAYS - 1],
           ),
         );
       }
@@ -100,7 +99,7 @@ export default function ProviderScheduleScreen() {
     } finally {
       setLoading(false);
     }
-  }, [weekDays]);
+  }, [dayKeys]);
 
   useFocusEffect(
     useCallback(() => {
@@ -164,7 +163,7 @@ export default function ProviderScheduleScreen() {
         <Body size={16}>‹</Body>
       </Pressable>
       <Semi size={14} style={styles.weekLabel}>
-        {weekLabel(weekStart)}
+        {keyWeekLabel(weekStartKey)}
       </Semi>
       <Pressable
         onPress={() => setWeekOffset((w) => w + 1)}
@@ -195,17 +194,14 @@ export default function ProviderScheduleScreen() {
             </View>
           ) : (
             <View style={styles.grid}>
-              {weekDays.map((day, index) => {
-                const key = dayKeys[index];
+              {dayKeys.map((key) => {
                 const visits = visitsByDay.get(key) ?? [];
                 const open = openByDay.get(key) ?? [];
                 return (
                   <View key={key} style={styles.gridColumn}>
                     <View style={styles.gridHead}>
-                      <Label>{formatWeekdayAbbr(day.toISOString(), zone)}</Label>
-                      <Strong size={15}>
-                        {formatShortDate(day.toISOString(), zone)}
-                      </Strong>
+                      <Label>{keyWeekdayAbbr(key)}</Label>
+                      <Strong size={15}>{keyShortDate(key)}</Strong>
                     </View>
                     <View style={styles.gridCells}>
                       {visits.length === 0 && open.length === 0 ? (
@@ -288,8 +284,7 @@ export default function ProviderScheduleScreen() {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.dayPills}>
-            {weekDays.map((day, index) => {
-              const key = dayKeys[index];
+            {dayKeys.map((key) => {
               const active = key === activeDayKey;
               const count = (visitsByDay.get(key) ?? []).length;
               return (
@@ -305,10 +300,10 @@ export default function ProviderScheduleScreen() {
                   ]}
                 >
                   <Body size={10.5} style={{ color: active ? color.white : color.inkFaint }}>
-                    {formatWeekdayAbbr(day.toISOString(), zone)}
+                    {keyWeekdayAbbr(key)}
                   </Body>
                   <Strong size={15} style={{ color: active ? color.white : color.ink }}>
-                    {formatDayNumber(day.toISOString(), zone)}
+                    {keyDayNumber(key)}
                   </Strong>
                 </Pressable>
               );

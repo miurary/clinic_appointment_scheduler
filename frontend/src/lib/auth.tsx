@@ -24,6 +24,7 @@ type AuthContextValue = {
     first_name?: string;
     last_name?: string;
     role: Extract<Role, 'patient' | 'provider'>;
+    timezone?: string;
   }) => Promise<User>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;

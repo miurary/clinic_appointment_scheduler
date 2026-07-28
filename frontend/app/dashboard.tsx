@@ -26,6 +26,7 @@ import {
 } from '../src/components/Typography';
 import { useAuth } from '../src/lib/auth';
 import { useBooking } from '../src/lib/booking';
+import { addToCalendar } from '../src/lib/calendar';
 import {
   formatDayNumber,
   formatMonthAbbr,
@@ -150,7 +151,7 @@ export default function DashboardScreen() {
         <GhostButton
           label="Add to calendar"
           size="sm"
-          onPress={() => toast.show('Added to your calendar')}
+          onPress={async () => toast.show(await addToCalendar(next))}
         />
         <GhostButton label="Reschedule" size="sm" onPress={() => onReschedule(next)} />
         <GhostButton
@@ -190,7 +191,16 @@ export default function DashboardScreen() {
                 {visit.provider.full_name} · {formatShortDate(visit.start_at, zone)}
               </Muted>
             </View>
-            {isDesktop ? <Link size={13.5}>Visit summary</Link> : null}
+            {/* The mock has a "Visit summary" link here. There is no visit
+                summary in this build and no endpoint behind one, so it is
+                omitted rather than rendered as a link that goes nowhere. */}
+            {isDesktop ? (
+              <StatusPill
+                label={visit.status === 'completed' ? 'Completed' : 'Past'}
+                tone={visit.status === 'completed' ? 'success' : 'neutral'}
+                size={11.5}
+              />
+            ) : null}
           </View>
         ))}
       </RowGroup>

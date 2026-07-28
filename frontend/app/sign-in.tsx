@@ -137,9 +137,10 @@ export default function SignInScreen() {
           autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
           onSubmitEditing={submit}
           returnKeyType="go"
-          accessory={
-            mode === 'signin' ? <Link size={12}>Forgot?</Link> : undefined
-          }
+          /* The mock shows a "Forgot?" link. Password reset needs an email
+             backend that does not exist here, and a link that silently does
+             nothing is worse for someone actually locked out than no link at
+             all. Listed in the README as a known omission. */
         />
       </View>
 

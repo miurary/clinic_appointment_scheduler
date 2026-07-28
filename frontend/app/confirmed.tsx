@@ -9,6 +9,7 @@ import { Body, Display, Muted } from '../src/components/Typography';
 import { useToast } from '../src/components/Toast';
 import { useAuth } from '../src/lib/auth';
 import { useBooking } from '../src/lib/booking';
+import { addToCalendar } from '../src/lib/calendar';
 import {
   clinicNote,
   formatDayDate,
@@ -94,7 +95,7 @@ export default function ConfirmedScreen() {
           <GhostButton
             block
             label="Add to calendar"
-            onPress={() => toast.show('Added to your calendar')}
+            onPress={async () => toast.show(await addToCalendar(appointment))}
             style={styles.action}
           />
           <PrimaryButton
@@ -116,7 +117,7 @@ export default function ConfirmedScreen() {
             block
             size="lg"
             label="Add to calendar"
-            onPress={() => toast.show('Added to your calendar')}
+            onPress={async () => toast.show(await addToCalendar(appointment))}
           />
         </>
       )}

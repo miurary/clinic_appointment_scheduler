@@ -139,12 +139,12 @@ export function weekLabel(weekStart: Date): string {
 }
 
 /** Slots split into the handoff's Morning / Afternoon groups, in view zone. */
-export function splitByHalfDay(
-  slots: { start_at: string }[],
+export function splitByHalfDay<T extends { start_at: string }>(
+  slots: T[],
   timeZone: string,
-): { morning: typeof slots; afternoon: typeof slots } {
-  const morning: typeof slots = [];
-  const afternoon: typeof slots = [];
+): { morning: T[]; afternoon: T[] } {
+  const morning: T[] = [];
+  const afternoon: T[] = [];
   for (const slot of slots) {
     const hour = Number(
       formatter(timeZone, { hour: 'numeric', hour12: false }).format(

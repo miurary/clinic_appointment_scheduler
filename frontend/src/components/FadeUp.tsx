@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef } from 'react';
-import { Animated, type ViewStyle } from 'react-native';
+import { Animated, type StyleProp, type ViewStyle } from 'react-native';
 
 import { motion } from '../theme/tokens';
 
@@ -17,7 +17,7 @@ export function FadeUp({
   delay = 0,
 }: {
   children: ReactNode;
-  style?: ViewStyle | ViewStyle[];
+  style?: StyleProp<ViewStyle>;
   delay?: number;
 }) {
   const progress = useRef(new Animated.Value(0)).current;
@@ -54,7 +54,13 @@ export function FadeUp({
  * The success check's entrance: scale .7 -> 1.08 -> 1, so it overshoots and
  * settles rather than simply appearing.
  */
-export function Pop({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+export function Pop({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {

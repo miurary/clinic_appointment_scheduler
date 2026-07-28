@@ -122,8 +122,16 @@ export function addDays(date: Date, days: number): Date {
   return copy;
 }
 
-/** YYYY-MM-DD in the *device's* calendar, for building API date ranges. */
-export function toDateParam(date: Date): string {
+/**
+ * YYYY-MM-DD for an API date range.
+ *
+ * Pass the provider's timezone whenever the range is about their calendar:
+ * the slots endpoint interprets these as provider-local dates, so a device in
+ * Tokyo asking about a Los Angeles provider would otherwise be a day out.
+ * Falls back to the device's calendar when no zone is given.
+ */
+export function toDateParam(date: Date, timeZone?: string): string {
+  if (timeZone) return localDateKey(date, timeZone);
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

@@ -18,7 +18,7 @@ import { Field, Segmented } from '../src/components/Form';
 import { PageBackground } from '../src/components/Surface';
 import { Body, Display, Link, Muted } from '../src/components/Typography';
 import { useAuth } from '../src/lib/auth';
-import { color, font, radius, shadow } from '../src/theme/tokens';
+import { color, radius, shadow } from '../src/theme/tokens';
 import { useResponsive } from '../src/theme/useResponsive';
 
 type Mode = 'signin' | 'signup';

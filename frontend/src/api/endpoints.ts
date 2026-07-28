@@ -73,8 +73,6 @@ export const api = {
     list: (query?: { specialty?: string; accepting_new_patients?: string }) =>
       request<Paginated<Provider>>('/api/providers/', { query }),
 
-    get: (id: number) => request<Provider>(`/api/providers/${id}/`),
-
     /** Open slots between two provider-local dates (inclusive). */
     slots: (id: number, dateFrom: string, dateTo: string) =>
       request<Slot[]>(`/api/providers/${id}/slots/`, {

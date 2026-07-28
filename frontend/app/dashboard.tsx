@@ -1,6 +1,12 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { ApiError } from '../src/api/client';
 import { api } from '../src/api/endpoints';
@@ -8,6 +14,7 @@ import type { Appointment } from '../src/api/types';
 import {
   Avatar,
   initialsFor,
+  Note,
   StatusPill,
   tintFor,
 } from '../src/components/Bits';
@@ -19,7 +26,6 @@ import {
   Body,
   Display,
   Label,
-  Link,
   Muted,
   Semi,
   Strong,
@@ -49,6 +55,9 @@ export default function DashboardScreen() {
   const [upcoming, setUpcoming] = useState<Appointment[]>([]);
   const [past, setPast] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  // Without this a failed fetch renders as "no upcoming visits", which is
+  // a very different thing to tell a patient than "we could not check".
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const zone = user?.timezone ?? booking.timezone;
 
@@ -63,9 +72,11 @@ export default function DashboardScreen() {
       ]);
       setUpcoming(next.results);
       setPast(history.results);
+      setLoadError(null);
     } catch {
       setUpcoming([]);
       setPast([]);
+      setLoadError('Could not load your visits. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -105,6 +116,23 @@ export default function DashboardScreen() {
       ? 'One upcoming visit.'
       : 'No upcoming visits.';
 
+  const errorBanner = loadError ? (
+    <Note
+      tone="error"
+      icon="⚠"
+      style={styles.errorBanner}
+      action={
+        <Pressable onPress={load} accessibilityRole="button" hitSlop={8}>
+          <Semi size={13.5} style={{ color: color.errorText }}>
+            Retry
+          </Semi>
+        </Pressable>
+      }
+    >
+      {loadError}
+    </Note>
+  ) : null;
+
   const upcomingBlock = loading ? (
     <View style={styles.loading}>
       <ActivityIndicator color={color.primary} />
@@ -137,9 +165,9 @@ export default function DashboardScreen() {
                 🕓 {formatTime(next.start_at, zone)} {shortLabelFor(zone)} ·{' '}
                 {minutesBetween(next.start_at, next.end_at)} min
               </Body>
-              {isDesktop ? (
+              {isDesktop && next.provider.location ? (
                 <Body size={13.5} style={{ color: color.inkStrong }}>
-                  📍 Ballard clinic
+                  📍 {next.provider.location}
                 </Body>
               ) : null}
             </View>
@@ -217,6 +245,8 @@ export default function DashboardScreen() {
             {subtitle}
           </Muted>
 
+          {errorBanner}
+
           <View style={styles.twoColumn}>
             <View style={styles.mainColumn}>
               <Label style={styles.sectionLabel}>Upcoming</Label>
@@ -243,10 +273,15 @@ export default function DashboardScreen() {
                     <Muted size={13}>Timezone</Muted>
                     <Semi size={13}>{shortLabelFor(zone) || zone}</Semi>
                   </View>
-                  <View style={styles.metaRow}>
-                    <Muted size={13}>Care team</Muted>
-                    <Semi size={13}>Pulmonology</Semi>
-                  </View>
+                  {/* Derived from the upcoming visit rather than asserted:
+                      there is no care-team model, and inventing one would put
+                      a specialty on the screen that nothing backs. */}
+                  {next?.provider.specialty ? (
+                    <View style={styles.metaRow}>
+                      <Muted size={13}>Care team</Muted>
+                      <Semi size={13}>{next.provider.specialty}</Semi>
+                    </View>
+                  ) : null}
                 </View>
               </Card>
 
@@ -288,6 +323,8 @@ export default function DashboardScreen() {
           {subtitle}
         </Muted>
 
+        {errorBanner}
+
         <Label style={styles.sectionLabel}>Upcoming</Label>
         {upcomingBlock}
 
@@ -306,6 +343,7 @@ const styles = StyleSheet.create({
   twoColumn: { flexDirection: 'row', gap: 28, marginTop: 28 },
   mainColumn: { flex: 1 },
   rail: { width: 320, gap: 20 },
+  errorBanner: { marginTop: 18 },
   sectionLabel: { marginBottom: 12 },
   sectionLabelSpaced: { marginTop: 28, marginBottom: 12 },
   loading: { paddingVertical: 40, alignItems: 'center' },

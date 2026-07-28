@@ -107,7 +107,9 @@ export default function ReviewScreen() {
           )}`}
         />
         <DetailRow label="Timezone" value={labelFor(timezone)} />
-        <DetailRow label="Location" value="Ballard clinic" />
+        {provider.location ? (
+          <DetailRow label="Location" value={provider.location} />
+        ) : null}
       </View>
       {note ? (
         <Note tone="info" icon="🕓" style={styles.note}>

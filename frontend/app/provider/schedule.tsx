@@ -10,7 +10,7 @@ import {
 
 import { api } from '../../src/api/endpoints';
 import type { Appointment, Slot } from '../../src/api/types';
-import { Avatar, initialsFor, tintFor } from '../../src/components/Bits';
+import { Avatar, initialsFor, Note, tintFor } from '../../src/components/Bits';
 import { BottomTabs, PROVIDER_NAV, TopNav } from '../../src/components/Nav';
 import { AppCard, Card } from '../../src/components/Surface';
 import {
@@ -54,6 +54,8 @@ export default function ProviderScheduleScreen() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [openSlots, setOpenSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
+  // A dropped request must not look like an empty calendar.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
 
@@ -85,14 +87,16 @@ export default function ProviderScheduleScreen() {
         setOpenSlots(
           await api.providers.slots(
             profile.id,
-            toDateParam(weekDays[0]),
-            toDateParam(weekDays[WORKING_DAYS - 1]),
+            toDateParam(weekDays[0], zone),
+            toDateParam(weekDays[WORKING_DAYS - 1], zone),
           ),
         );
       }
+      setLoadError(null);
     } catch {
       setAppointments([]);
       setOpenSlots([]);
+      setLoadError('Could not load your schedule. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -132,6 +136,23 @@ export default function ProviderScheduleScreen() {
 
   const activeDayKey = selectedDayKey ?? dayKeys[0];
 
+  const errorBanner = loadError ? (
+    <Note
+      tone="error"
+      icon="⚠"
+      style={styles.errorBanner}
+      action={
+        <Pressable onPress={load} accessibilityRole="button" hitSlop={8}>
+          <Semi size={13.5} style={{ color: color.errorText }}>
+            Retry
+          </Semi>
+        </Pressable>
+      }
+    >
+      {loadError}
+    </Note>
+  ) : null;
+
   const weekBar = (
     <View style={styles.weekBar}>
       <Pressable
@@ -162,6 +183,7 @@ export default function ProviderScheduleScreen() {
       <AppCard>
         <TopNav items={PROVIDER_NAV} name={user?.full_name ?? 'You'} role="Provider" />
         <View style={styles.desktopBody}>
+          {errorBanner}
           <View style={styles.headRow}>
             <Display size={32}>Schedule</Display>
             {weekBar}
@@ -261,6 +283,7 @@ export default function ProviderScheduleScreen() {
         />
       </View>
       <ScrollView contentContainerStyle={styles.mobileBody}>
+        {errorBanner}
         <Display size={24}>Schedule</Display>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -376,6 +399,7 @@ function LegendSwatch({
 
 const styles = StyleSheet.create({
   desktopBody: { paddingHorizontal: 40, paddingVertical: 34 },
+  errorBanner: { marginBottom: 16 },
   headRow: {
     flexDirection: 'row',
     alignItems: 'center',

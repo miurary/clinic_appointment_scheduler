@@ -1,19 +1,25 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 
 import { api } from '../../src/api/endpoints';
 import type { Appointment, Slot } from '../../src/api/types';
 import {
   Avatar,
   initialsFor,
+  Note,
   StatusPill,
   tintFor,
 } from '../../src/components/Bits';
 import { BottomTabs, PROVIDER_NAV, TopNav } from '../../src/components/Nav';
 import { AppCard, Card, RowGroup } from '../../src/components/Surface';
 import {
-  Body,
   Display,
   Label,
   Muted,
@@ -43,6 +49,8 @@ export default function ProviderTodayScreen() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [openSlots, setOpenSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
+  // A dropped request must not look like an empty calendar.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const zone = user?.timezone ?? 'America/Los_Angeles';
   const todayKey = localDateKey(new Date(), zone);
@@ -62,12 +70,14 @@ export default function ProviderTodayScreen() {
       setAppointments([...past.results, ...upcoming.results]);
 
       if (profile) {
-        const today = toDateParam(new Date());
+        const today = toDateParam(new Date(), zone);
         setOpenSlots(await api.providers.slots(profile.id, today, today));
       }
+      setLoadError(null);
     } catch {
       setAppointments([]);
       setOpenSlots([]);
+      setLoadError('Could not load your schedule. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -173,6 +183,23 @@ export default function ProviderTodayScreen() {
     </RowGroup>
   );
 
+  const errorBanner = loadError ? (
+    <Note
+      tone="error"
+      icon="⚠"
+      style={styles.errorBanner}
+      action={
+        <Pressable onPress={load} accessibilityRole="button" hitSlop={8}>
+          <Semi size={13.5} style={{ color: color.errorText }}>
+            Retry
+          </Semi>
+        </Pressable>
+      }
+    >
+      {loadError}
+    </Note>
+  ) : null;
+
   const heading = (
     <>
       <Display size={isDesktop ? 32 : 26}>
@@ -215,7 +242,9 @@ export default function ProviderTodayScreen() {
       <AppCard>
         <TopNav items={PROVIDER_NAV} name={user?.full_name ?? 'You'} role="Provider" />
         <View style={styles.desktopBody}>
-          {heading}
+          {errorBanner}
+          {errorBanner}
+        {heading}
           {statRow}
           <Label style={styles.sectionLabel}>Today&apos;s schedule</Label>
           {schedule}
@@ -234,6 +263,7 @@ export default function ProviderTodayScreen() {
         />
       </View>
       <ScrollView contentContainerStyle={styles.mobileBody}>
+        {errorBanner}
         {heading}
         {statRow}
         <Label style={styles.sectionLabel}>Schedule</Label>
@@ -254,6 +284,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   mobileBody: { paddingHorizontal: 20, paddingBottom: 24 },
+  errorBanner: { marginTop: 16 },
   subtitle: { marginTop: 2 },
   statRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
   statCard: { flex: 1, padding: 14, gap: 2 },

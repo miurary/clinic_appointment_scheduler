@@ -69,6 +69,9 @@ export default function BookScreen() {
   // Mobile has no room for the desktop chip row, so provider choice moves
   // into a sheet behind the "Change" affordance on the provider card.
   const [providerSheetOpen, setProviderSheetOpen] = useState(false);
+  // A failed fetch used to fall through to an empty list, which reads as
+  // "this provider has nothing free" -- indistinguishable from the truth.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const viewZone = booking.timezone;
   const provider = booking.provider;
@@ -94,7 +97,10 @@ export default function BookScreen() {
           booking.setProvider(page.results[0]);
         }
       })
-      .catch(() => setProviders([]));
+      .catch(() => {
+        setProviders([]);
+        setLoadError('Could not load providers. Check your connection.');
+      });
     return () => {
       cancelled = true;
     };
@@ -108,12 +114,15 @@ export default function BookScreen() {
     try {
       const found = await api.providers.slots(
         provider.id,
-        toDateParam(weekDays[0]),
-        toDateParam(weekDays[WORKING_DAYS - 1]),
+        // Provider-local: the endpoint reads these as dates on their calendar.
+        toDateParam(weekDays[0], provider.timezone),
+        toDateParam(weekDays[WORKING_DAYS - 1], provider.timezone),
       );
       setSlots(found);
+      setLoadError(null);
     } catch {
       setSlots([]);
+      setLoadError('Could not load open times. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -184,9 +193,42 @@ export default function BookScreen() {
       ) : null}
 
       {booking.takenSlot ? (
-        <Note tone="error" icon="⚠" style={styles.banner}>
+        <Note
+          tone="error"
+          icon="⚠"
+          style={styles.banner}
+          action={
+            <Pressable
+              onPress={booking.clearError}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              hitSlop={8}
+            >
+              <Semi size={13.5} style={{ color: color.errorText }}>
+                Dismiss
+              </Semi>
+            </Pressable>
+          }
+        >
           The time you picked was just booked by someone else. It&apos;s been removed —
           please choose another.
+        </Note>
+      ) : null}
+
+      {loadError ? (
+        <Note
+          tone="error"
+          icon="⚠"
+          style={styles.banner}
+          action={
+            <Pressable onPress={loadSlots} accessibilityRole="button" hitSlop={8}>
+              <Semi size={13.5} style={{ color: color.errorText }}>
+                Retry
+              </Semi>
+            </Pressable>
+          }
+        >
+          {loadError}
         </Note>
       ) : null}
     </>

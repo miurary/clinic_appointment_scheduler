@@ -124,6 +124,7 @@ class ProviderProfileSerializer(serializers.ModelSerializer):
             "timezone",
             "specialty",
             "bio",
+            "location",
             "slot_duration_minutes",
             "buffer_minutes",
             "booking_horizon_days",
@@ -146,6 +147,7 @@ class ProviderPublicSerializer(serializers.ModelSerializer):
             "timezone",
             "specialty",
             "bio",
+            "location",
             "slot_duration_minutes",
             "accepting_new_patients",
         ]

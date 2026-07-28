@@ -43,7 +43,8 @@ function foldLine(line: string): string {
   return parts.join('\r\n');
 }
 
-export function buildIcs(appointment: Appointment, location = 'Ballard clinic'): string {
+export function buildIcs(appointment: Appointment): string {
+  const location = appointment.provider.location || '';
   const summary = `${appointment.reason || 'Visit'} — ${appointment.provider.full_name}`;
   const description = [appointment.provider.full_name, appointment.provider.specialty]
     .filter(Boolean)
@@ -64,7 +65,7 @@ export function buildIcs(appointment: Appointment, location = 'Ballard clinic'):
     `DTEND:${icsStamp(appointment.end_at)}`,
     `SUMMARY:${escapeText(summary)}`,
     `DESCRIPTION:${escapeText(description)}`,
-    `LOCATION:${escapeText(location)}`,
+    ...(location ? [`LOCATION:${escapeText(location)}`] : []),
     'STATUS:CONFIRMED',
     'BEGIN:VALARM',
     'TRIGGER:-PT60M',

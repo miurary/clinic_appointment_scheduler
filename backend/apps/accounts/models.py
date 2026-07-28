@@ -113,6 +113,10 @@ class ProviderProfile(models.Model):
     )
     specialty = models.CharField(max_length=120, blank=True)
     bio = models.TextField(blank=True)
+    # Which site this provider works from. A single free-text field rather than
+    # a Clinic model: multi-location scheduling is out of scope, and the UI
+    # only ever displays this string.
+    location = models.CharField(max_length=120, blank=True)
 
     # Length of a bookable slot; availability windows are divided into these.
     slot_duration_minutes = models.PositiveIntegerField(default=30)

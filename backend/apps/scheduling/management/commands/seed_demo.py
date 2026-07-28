@@ -34,6 +34,7 @@ PROVIDERS = [
         "first_name": "Dana",
         "last_name": "Okafor",
         "specialty": "Family medicine",
+        "location": "Ballard clinic",
         "timezone": "America/New_York",
         "slot_duration_minutes": 30,
         "buffer_minutes": 5,
@@ -45,6 +46,7 @@ PROVIDERS = [
         "first_name": "Priya",
         "last_name": "Raman",
         "specialty": "Dermatology",
+        "location": "Downtown clinic",
         "timezone": "America/Los_Angeles",
         "slot_duration_minutes": 60,
         "buffer_minutes": 0,
@@ -60,6 +62,7 @@ PROVIDERS = [
         "first_name": "Sam",
         "last_name": "Nakamura",
         "specialty": "Paediatrics",
+        "location": "Ballard clinic",
         "timezone": "America/Chicago",
         "slot_duration_minutes": 20,
         "buffer_minutes": 10,
@@ -153,10 +156,14 @@ class Command(BaseCommand):
             user.set_password(DEMO_PASSWORD)
             user.save(update_fields=["password"])
 
-        profile, _ = ProviderProfile.objects.get_or_create(
+        # update_or_create rather than get_or_create: `defaults` is ignored for
+        # rows that already exist, so a field added to the demo data after the
+        # first run would never appear. Converging keeps re-running honest.
+        profile, _ = ProviderProfile.objects.update_or_create(
             user=user,
             defaults={
                 "specialty": spec["specialty"],
+                "location": spec["location"],
                 "slot_duration_minutes": spec["slot_duration_minutes"],
                 "buffer_minutes": spec["buffer_minutes"],
                 "min_notice_minutes": spec["min_notice_minutes"],

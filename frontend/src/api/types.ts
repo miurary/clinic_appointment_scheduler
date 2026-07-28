@@ -20,6 +20,8 @@ export type Provider = {
   timezone: string;
   specialty: string;
   bio: string;
+  /** Which site they work from. May be blank; callers must handle that. */
+  location: string;
   slot_duration_minutes: number;
   accepting_new_patients: boolean;
 };

@@ -9,7 +9,7 @@ aborts the surrounding transaction, and pytest-django runs each test inside
 one, so without an inner savepoint the following line fails with
 TransactionManagementError instead of the assertion under test.
 """
-from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+from datetime import date, time, timedelta
 
 import pytest
 from django.db import IntegrityError, transaction
@@ -22,12 +22,9 @@ from apps.scheduling.models import (
     TimeOff,
     Weekday,
 )
+from testkit import utc
 
 pytestmark = pytest.mark.django_db
-
-
-def utc(year, month, day, hour, minute=0):
-    return datetime(year, month, day, hour, minute, tzinfo=dt_timezone.utc)
 
 
 class TestNoDoubleBooking:

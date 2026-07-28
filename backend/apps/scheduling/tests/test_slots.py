@@ -6,34 +6,21 @@ Where a count cannot come from the window -- the DST transition days, where wall
 clock and real elapsed time disagree -- the real hours are stated explicitly and
 the discrepancy is the point of the test.
 """
-from datetime import date, datetime, time, timedelta, timezone as dt_timezone
-from zoneinfo import ZoneInfo
+from datetime import date, time, timedelta
 
 import pytest
 
-from apps.scheduling.models import AppointmentStatus, AvailabilityRule, TimeOff, Weekday
+from apps.scheduling.models import (
+    Appointment,
+    AppointmentStatus,
+    AvailabilityRule,
+    TimeOff,
+    Weekday,
+)
 from apps.scheduling.services.slots import generate_slots
-
-NY = ZoneInfo("America/New_York")
-LA = ZoneInfo("America/Los_Angeles")
+from testkit import LA, NY, hhmm, local_ends, local_starts, slot_at, utc
 
 pytestmark = pytest.mark.django_db
-
-
-def utc(year, month, day, hour, minute=0):
-    return datetime(year, month, day, hour, minute, tzinfo=dt_timezone.utc)
-
-
-def hhmm(value: time) -> str:
-    return value.strftime("%H:%M")
-
-
-def local_starts(slots, tz=NY):
-    return [s.start_at.astimezone(tz).strftime("%H:%M") for s in slots]
-
-
-def local_ends(slots, tz=NY):
-    return [s.end_at.astimezone(tz).strftime("%H:%M") for s in slots]
 
 
 class TestWindowExpansion:
@@ -207,19 +194,30 @@ class TestSubtraction:
         assert "15:30" not in starts
 
     def test_buffer_widens_the_blocked_window(
-        self, provider, provider_spec, monday, booked_appointment, frozen_clock
+        self, buffered_provider, buffered_provider_spec, patient, monday, frozen_clock
     ):
-        """15 minutes of buffer on each side of the 10:00-10:30 booking blocks
-        09:45-10:45, which intersects three slots rather than one."""
-        provider.buffer_minutes = 15
-        provider.save()
+        """15 minutes of buffer on each side of a 10:00-10:30 booking blocks
+        09:45-10:45, which intersects three slots rather than one.
 
-        starts = local_starts(generate_slots(provider, monday, monday))
+        The surviving slots stay on the original grid: a buffer removes slots,
+        it does not shift them.
+        """
+        spec = buffered_provider_spec
+        start = slot_at(monday, spec, index=2)
+        Appointment.objects.create(
+            provider=buffered_provider,
+            patient=patient,
+            start_at=start,
+            end_at=start + timedelta(minutes=spec.slot_minutes),
+        )
+
+        starts = local_starts(generate_slots(buffered_provider, monday, monday))
 
         blocked = ("09:30", "10:00", "10:30")
-        assert len(starts) == provider_spec.slot_count - len(blocked)
+        assert len(starts) == spec.slot_count - len(blocked)
         for slot in blocked:
             assert slot not in starts
+        assert "11:00" in starts  # unmoved
 
 
 class TestBoundaries:
@@ -250,11 +248,12 @@ class TestBoundaries:
     def test_time_off_abutting_a_slot_leaves_it_bookable(
         self, provider, provider_spec, monday, frozen_clock
     ):
-        """Exactly 09:00-09:30 local: one slot's worth, aligned to the grid."""
+        """Exactly the opening slot: 09:00-09:30, aligned to the grid."""
+        opening = slot_at(monday, provider_spec, index=0)
         TimeOff.objects.create(
             provider=provider,
-            start_at=utc(2026, 3, 2, 14, 0),
-            end_at=utc(2026, 3, 2, 14, 30),
+            start_at=opening,
+            end_at=opening + timedelta(minutes=provider_spec.slot_minutes),
         )
 
         starts = local_starts(generate_slots(provider, monday, monday))
@@ -266,11 +265,12 @@ class TestBoundaries:
     def test_partial_overlap_removes_both_touched_slots(
         self, provider, provider_spec, monday, frozen_clock
     ):
-        """09:15-09:45 covers neither slot fully but intersects both."""
+        """Half a slot late and half a slot long: covers neither the 09:00 nor
+        the 09:30 slot fully, but intersects both."""
+        half_slot = timedelta(minutes=provider_spec.slot_minutes / 2)
+        start = slot_at(monday, provider_spec, index=0) + half_slot
         TimeOff.objects.create(
-            provider=provider,
-            start_at=utc(2026, 3, 2, 14, 15),
-            end_at=utc(2026, 3, 2, 14, 45),
+            provider=provider, start_at=start, end_at=start + 2 * half_slot
         )
 
         starts = local_starts(generate_slots(provider, monday, monday))
@@ -283,11 +283,12 @@ class TestBoundaries:
     def test_one_minute_of_overlap_is_enough_to_block(
         self, provider, provider_spec, monday, frozen_clock
     ):
-        """09:29-09:31 clips one minute from each neighbouring slot."""
+        """Straddles a slot boundary by a minute on each side, clipping the
+        end of one slot and the start of the next."""
+        minute = timedelta(minutes=1)
+        boundary = slot_at(monday, provider_spec, index=1)
         TimeOff.objects.create(
-            provider=provider,
-            start_at=utc(2026, 3, 2, 14, 29),
-            end_at=utc(2026, 3, 2, 14, 31),
+            provider=provider, start_at=boundary - minute, end_at=boundary + minute
         )
 
         starts = local_starts(generate_slots(provider, monday, monday))
@@ -300,17 +301,14 @@ class TestBoundaries:
 
 class TestNoticeAndHorizon:
     def test_minimum_notice_hides_imminent_slots(
-        self, provider, provider_spec, monday, frozen_clock
+        self, notice_provider, notice_provider_spec, monday, frozen_clock
     ):
         """Now is 07:00 local. Four hours notice makes 11:00 the earliest
         bookable time, leaving the 11:00-17:00 remainder of the day."""
-        provider.min_notice_minutes = 4 * 60
-        provider.save()
-
-        starts = local_starts(generate_slots(provider, monday, monday))
+        starts = local_starts(generate_slots(notice_provider, monday, monday))
 
         assert starts[0] == "11:00"
-        assert len(starts) == provider_spec.slots_in_hours(6)
+        assert len(starts) == notice_provider_spec.slots_in_hours(6)
 
     def test_booking_horizon_clamps_the_range(self, provider, monday, frozen_clock):
         horizon_days = 3

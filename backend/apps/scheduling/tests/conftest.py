@@ -8,52 +8,59 @@ module that needs it, not here: a fixture only earns a place in conftest when
 several modules share it, otherwise the reader has to leave the test file to
 find out what it means.
 
-All datetimes are UTC, with the provider-local equivalent in a comment: that
-mapping is the part a future reader is most likely to misread.
+Times come from slot_at(day, spec, index) rather than UTC literals. A literal
+like "15:00 UTC" is only meaningful given the provider's opening hour and
+timezone, so it silently stops describing a real slot the moment a spec
+changes; deriving it means the fixture follows instead.
 """
-from datetime import datetime, timezone as dt_timezone
+from datetime import timedelta
 
 import pytest
 
 from apps.scheduling.models import Appointment, TimeOff
-
-
-def utc(year, month, day, hour, minute=0):
-    return datetime(year, month, day, hour, minute, tzinfo=dt_timezone.utc)
+from testkit import slot_at
 
 
 @pytest.fixture
-def booked_appointment(provider, patient):
-    """Monday 10:00-10:30 New York."""
+def booked_appointment(provider, provider_spec, patient, monday):
+    """The provider's third slot of the day: 10:00-10:30 New York."""
+    start = slot_at(monday, provider_spec, index=2)
     return Appointment.objects.create(
         provider=provider,
         patient=patient,
         booked_by=patient,
-        start_at=utc(2026, 3, 2, 15, 0),
-        end_at=utc(2026, 3, 2, 15, 30),
+        start_at=start,
+        end_at=start + timedelta(minutes=provider_spec.slot_minutes),
         reason="Annual physical",
     )
 
 
 @pytest.fixture
-def other_appointment(other_provider, other_patient):
-    """Monday 10:00-11:00 Los Angeles: a different provider and patient."""
+def other_appointment(other_provider, other_provider_spec, other_patient, monday):
+    """The other provider's opening slot: 10:00-11:00 Los Angeles.
+
+    A different provider, a different patient and a different timezone, so a
+    scoping bug cannot pass by coincidence.
+    """
+    start = slot_at(monday, other_provider_spec, index=0)
     return Appointment.objects.create(
         provider=other_provider,
         patient=other_patient,
         booked_by=other_patient,
-        start_at=utc(2026, 3, 2, 18, 0),
-        end_at=utc(2026, 3, 2, 19, 0),
+        start_at=start,
+        end_at=start + timedelta(minutes=other_provider_spec.slot_minutes),
         reason="Follow-up",
     )
 
 
 @pytest.fixture
-def time_off(provider):
-    """Monday 15:00-16:00 New York, covering two of the provider's slots."""
+def time_off(provider, provider_spec, monday):
+    """Two slots' worth, starting at 15:00 New York."""
+    covered_slots = 2
+    start = slot_at(monday, provider_spec, index=12)
     return TimeOff.objects.create(
         provider=provider,
-        start_at=utc(2026, 3, 2, 20, 0),
-        end_at=utc(2026, 3, 2, 21, 0),
+        start_at=start,
+        end_at=start + timedelta(minutes=covered_slots * provider_spec.slot_minutes),
         reason="Team meeting",
     )

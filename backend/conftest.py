@@ -13,9 +13,8 @@ Each provider is built from a ProviderSpec, and tests derive their expected slot
 counts from the same spec. That keeps expectations like "16 slots" out of the
 assertions: change a window or a slot length in one place and the tests follow.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timezone as dt_timezone
-from zoneinfo import ZoneInfo
 
 import pytest
 import time_machine
@@ -23,9 +22,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import PatientProfile, ProviderProfile, Role, User
 from apps.scheduling.models import AvailabilityRule, Weekday
-
-NY = ZoneInfo("America/New_York")
-LA = ZoneInfo("America/Los_Angeles")
+from testkit import NY
 
 # Monday 2026-03-02, 07:00 in New York -- before that day's 9-5 window, so
 # same-day booking is testable. It is also the Monday before the 2026 US
@@ -55,6 +52,8 @@ class ProviderSpec:
     # Off by default so that most tests can book on the frozen Monday itself.
     min_notice_minutes: int = 0
     booking_horizon_days: int = 365
+    # Dead time either side of a booking. Does not move the slot grid.
+    buffer_minutes: int = 0
 
     def slots_in_hours(self, hours: float) -> int:
         """Whole slots fitting in a span of real elapsed hours.
@@ -104,6 +103,14 @@ DST_PROVIDER_SPEC = ProviderSpec(
     closes=time(5, 0),
     slot_minutes=30,
 )
+
+# Variants of the standard provider, expressed as deltas so the relationship
+# stays visible and a change to PROVIDER_SPEC carries through. Declaring these
+# is what lets tests stop mutating a model mid-test to set up their own world.
+BUFFERED_PROVIDER_SPEC = replace(PROVIDER_SPEC, buffer_minutes=15)
+# Four hours notice against a frozen 07:00 local clock makes 11:00 the first
+# bookable slot.
+NOTICE_PROVIDER_SPEC = replace(PROVIDER_SPEC, min_notice_minutes=4 * 60)
 
 
 @pytest.fixture
@@ -161,6 +168,7 @@ def make_provider(email, first, last, spec: ProviderSpec):
         slot_duration_minutes=spec.slot_minutes,
         min_notice_minutes=spec.min_notice_minutes,
         booking_horizon_days=spec.booking_horizon_days,
+        buffer_minutes=spec.buffer_minutes,
     )
     AvailabilityRule.objects.create(
         provider=profile,
@@ -188,6 +196,16 @@ def other_provider_spec():
 @pytest.fixture
 def dst_provider_spec():
     return DST_PROVIDER_SPEC
+
+
+@pytest.fixture
+def buffered_provider_spec():
+    return BUFFERED_PROVIDER_SPEC
+
+
+@pytest.fixture
+def notice_provider_spec():
+    return NOTICE_PROVIDER_SPEC
 
 
 # --- users ----------------------------------------------------------------
@@ -232,6 +250,22 @@ def other_provider(db):
     """Los Angeles, Mondays 10:00-16:00, 60 minute slots."""
     return make_provider(
         "other.provider@example.com", "Robin", "Elsewhere", OTHER_PROVIDER_SPEC
+    )
+
+
+@pytest.fixture
+def buffered_provider(db):
+    """As `provider`, but with 15 minutes of turnover either side of a booking."""
+    return make_provider(
+        "buffered.provider@example.com", "Bev", "Buffer", BUFFERED_PROVIDER_SPEC
+    )
+
+
+@pytest.fixture
+def notice_provider(db):
+    """As `provider`, but requiring four hours notice before a slot."""
+    return make_provider(
+        "notice.provider@example.com", "Nick", "Notice", NOTICE_PROVIDER_SPEC
     )
 
 

@@ -16,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 
 from apps.scheduling.models import Appointment, AppointmentStatus, Weekday
 from apps.scheduling.views import MAX_SLOT_RANGE_DAYS
+from testkit import slot_at
 
 pytestmark = pytest.mark.django_db
 
@@ -24,21 +25,18 @@ DEFAULT_RANGE_DAYS = 14
 
 
 @pytest.fixture
-def provider_tz(provider_spec):
-    return ZoneInfo(provider_spec.timezone)
-
-
-@pytest.fixture
-def first_slot(monday, provider_spec, provider_tz):
+def first_slot(monday, provider_spec):
     """The provider's opening slot: 09:00 New York on the frozen Monday."""
-    return datetime.combine(monday, provider_spec.opens, tzinfo=provider_tz)
+    return slot_at(monday, provider_spec, index=0)
 
 
 @pytest.fixture
-def outside_hours(monday, provider_spec, provider_tz):
+def outside_hours(monday, provider_spec):
     """An hour after the provider closes."""
     closes = provider_spec.closes
-    return datetime.combine(monday, time(closes.hour + 1, 0), tzinfo=provider_tz)
+    return datetime.combine(
+        monday, time(closes.hour + 1, 0), tzinfo=ZoneInfo(provider_spec.timezone)
+    )
 
 
 def iso(moment: datetime) -> str:

@@ -1,7 +1,7 @@
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from rest_framework import serializers
 
 from apps.accounts.models import ProviderProfile
@@ -9,6 +9,23 @@ from apps.accounts.serializers import ProviderPublicSerializer, UserSerializer
 
 from .models import Appointment, AvailabilityRule, TimeOff
 from .services.slots import generate_slots
+
+# Postgres SQLSTATEs that mean "another transaction got there first", as opposed
+# to a genuine data error. Matching on these rather than on the exception class
+# alone keeps a dropped connection from being reported as a taken slot.
+SLOT_CONFLICT_SQLSTATES = frozenset(
+    {
+        "23P01",  # exclusion_violation: the no-overlap constraint fired
+        "40P01",  # deadlock_detected: two inserts each checked the other's
+        #           uncommitted row, so Postgres killed one of them
+        "40001",  # serialization_failure
+    }
+)
+
+
+def _is_slot_conflict(exc: Exception) -> bool:
+    """True when the database rejected a write because the slot was taken."""
+    return getattr(exc.__cause__, "sqlstate", None) in SLOT_CONFLICT_SQLSTATES
 
 
 class AvailabilityRuleSerializer(serializers.ModelSerializer):
@@ -123,9 +140,15 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
         try:
             with transaction.atomic():
                 return super().create(validated_data)
-        except IntegrityError as exc:
-            # The exclusion constraint fired: someone booked this slot between
-            # our availability check and this insert.
+        except (IntegrityError, OperationalError) as exc:
+            # Someone booked this slot between our availability check and this
+            # insert. Two shapes are possible: the loser blocks and then hits
+            # the exclusion constraint (IntegrityError), or both inserts race
+            # closely enough that each waits on the other's uncommitted row and
+            # Postgres breaks the deadlock (OperationalError). Anything else --
+            # a lost connection, a real integrity bug -- must not be swallowed.
+            if not _is_slot_conflict(exc):
+                raise
             raise serializers.ValidationError(
                 {"start_at": "That slot was just taken. Please pick another."}
             ) from exc

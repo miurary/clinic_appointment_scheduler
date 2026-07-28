@@ -9,10 +9,11 @@ aborts the surrounding transaction, and pytest-django runs each test inside
 one, so without an inner savepoint the following line fails with
 TransactionManagementError instead of the assertion under test.
 """
+import threading
 from datetime import date, time, timedelta
 
 import pytest
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import ProtectedError
 
 from apps.scheduling.models import (
@@ -22,7 +23,7 @@ from apps.scheduling.models import (
     TimeOff,
     Weekday,
 )
-from testkit import utc
+from testkit import slot_at, utc
 
 pytestmark = pytest.mark.django_db
 
@@ -151,6 +152,212 @@ class TestCancelledAppointmentsDoNotBlock:
                     start_at=booked_appointment.start_at,
                     end_at=booked_appointment.end_at,
                 )
+
+
+class TestOverlapOnUpdate:
+    """Exclusion constraints police UPDATE as well as INSERT.
+
+    Only inserts were covered before, which is the weaker half: a reschedule
+    feature moves an existing row rather than creating one.
+    """
+
+    def test_moving_an_appointment_onto_another_is_rejected(
+        self, provider, provider_spec, other_patient, monday, booked_appointment
+    ):
+        later_start = slot_at(monday, provider_spec, index=6)
+        later = Appointment.objects.create(
+            provider=provider,
+            patient=other_patient,
+            start_at=later_start,
+            end_at=later_start + timedelta(minutes=provider_spec.slot_minutes),
+        )
+
+        later.start_at = booked_appointment.start_at
+        later.end_at = booked_appointment.end_at
+
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                later.save()
+
+    def test_reinstating_a_cancelled_appointment_into_a_conflict_is_rejected(
+        self, provider, other_patient, booked_appointment
+    ):
+        """Un-cancelling is an update that re-enters the constraint's condition.
+
+        The slot was freed and taken by someone else in the meantime, so the
+        original cannot simply be switched back to scheduled.
+        """
+        cancelled = Appointment.objects.create(
+            provider=provider,
+            patient=other_patient,
+            start_at=booked_appointment.start_at,
+            end_at=booked_appointment.end_at,
+            status=AppointmentStatus.CANCELLED,
+        )
+
+        cancelled.status = AppointmentStatus.SCHEDULED
+
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                cancelled.save()
+
+    def test_moving_an_appointment_to_a_free_slot_is_allowed(
+        self, provider, provider_spec, monday, booked_appointment
+    ):
+        """The constraint must not block an ordinary reschedule."""
+        target = slot_at(monday, provider_spec, index=8)
+
+        booked_appointment.start_at = target
+        booked_appointment.end_at = target + timedelta(
+            minutes=provider_spec.slot_minutes
+        )
+        booked_appointment.save()
+
+        booked_appointment.refresh_from_db()
+        assert booked_appointment.start_at == target
+
+
+class TestBypassAttempts:
+    """The constraint holds regardless of how the write is issued.
+
+    Every other test here goes through Model.objects.create(). These use the
+    paths that skip model save() and any application validation entirely --
+    which is the whole reason for pushing the rule into the database.
+    """
+
+    def test_bulk_create_cannot_smuggle_in_an_overlap(
+        self, provider, other_patient, booked_appointment
+    ):
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                Appointment.objects.bulk_create(
+                    [
+                        Appointment(
+                            provider=provider,
+                            patient=other_patient,
+                            start_at=booked_appointment.start_at,
+                            end_at=booked_appointment.end_at,
+                        )
+                    ]
+                )
+
+    def test_two_overlapping_rows_in_one_bulk_create_are_rejected(
+        self, provider, provider_spec, patient, other_patient, monday
+    ):
+        """Both rows arrive in a single statement, so nothing in Python sees
+        the conflict -- only the database does."""
+        start = slot_at(monday, provider_spec, index=2)
+        end = start + timedelta(minutes=provider_spec.slot_minutes)
+
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                Appointment.objects.bulk_create(
+                    [
+                        Appointment(
+                            provider=provider, patient=patient,
+                            start_at=start, end_at=end,
+                        ),
+                        Appointment(
+                            provider=provider, patient=other_patient,
+                            start_at=start, end_at=end,
+                        ),
+                    ]
+                )
+
+        assert not Appointment.objects.exists()
+
+    def test_queryset_update_cannot_create_an_overlap(
+        self, provider, provider_spec, other_patient, monday, booked_appointment
+    ):
+        """queryset.update() issues raw SQL and never calls save()."""
+        later_start = slot_at(monday, provider_spec, index=6)
+        later = Appointment.objects.create(
+            provider=provider,
+            patient=other_patient,
+            start_at=later_start,
+            end_at=later_start + timedelta(minutes=provider_spec.slot_minutes),
+        )
+
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                Appointment.objects.filter(pk=later.pk).update(
+                    start_at=booked_appointment.start_at,
+                    end_at=booked_appointment.end_at,
+                )
+
+    def test_queryset_update_cannot_reactivate_into_a_conflict(
+        self, provider, other_patient, booked_appointment
+    ):
+        cancelled = Appointment.objects.create(
+            provider=provider,
+            patient=other_patient,
+            start_at=booked_appointment.start_at,
+            end_at=booked_appointment.end_at,
+            status=AppointmentStatus.CANCELLED,
+        )
+
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                Appointment.objects.filter(pk=cancelled.pk).update(
+                    status=AppointmentStatus.SCHEDULED
+                )
+
+
+class TestConcurrentBooking:
+    """The race the exclusion constraint actually exists for.
+
+    Application validation reads the database and then writes to it. Two
+    patients requesting the last slot can both pass validation before either
+    commits, so only a database-level rule can decide the winner.
+
+    transaction=True is required: the other tests here run inside a single
+    transaction that never commits, so a second connection could not observe
+    anything. This uses real commits, and Django opens one connection per
+    thread.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_only_one_of_two_simultaneous_bookings_survives(
+        self, provider, provider_spec, patient, other_patient, monday
+    ):
+        start = slot_at(monday, provider_spec, index=2)
+        end = start + timedelta(minutes=provider_spec.slot_minutes)
+
+        # Both threads reach the barrier before either inserts, so neither can
+        # quietly finish first and turn this into a sequential test.
+        ready = threading.Barrier(2, timeout=10)
+        outcomes = []
+
+        def book(user):
+            try:
+                with transaction.atomic():
+                    ready.wait()
+                    Appointment.objects.create(
+                        provider=provider, patient=user, start_at=start, end_at=end
+                    )
+                outcomes.append("booked")
+            except (IntegrityError, OperationalError):
+                # Losing takes one of two shapes depending on how tightly the
+                # two inserts interleave: the loser blocks and then trips the
+                # exclusion constraint (IntegrityError), or both insert first
+                # and each ends up waiting on the other's uncommitted row, so
+                # Postgres breaks the deadlock (OperationalError). The API
+                # treats both as "that slot was just taken".
+                outcomes.append("rejected")
+            finally:
+                connection.close()
+
+        threads = [
+            threading.Thread(target=book, args=(user,))
+            for user in (patient, other_patient)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+
+        assert sorted(outcomes) == ["booked", "rejected"]
+        assert Appointment.objects.count() == 1
 
 
 class TestOrderedIntervals:

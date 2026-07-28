@@ -9,10 +9,13 @@ literals, so the tests still describe the same slot if a fixture's opening hour
 or slot length changes.
 """
 from datetime import datetime, time, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from django.db import IntegrityError, OperationalError
 from django.utils.dateparse import parse_datetime
+from rest_framework.serializers import ModelSerializer
 
 from apps.scheduling.models import Appointment, AppointmentStatus, Weekday
 from apps.scheduling.views import MAX_SLOT_RANGE_DAYS
@@ -275,6 +278,66 @@ class TestBooking:
 
         assert response.status_code == 403
         assert not Appointment.objects.exists()
+
+
+class TestLostRaceHandling:
+    """The branch that runs when validation passed but the write lost a race.
+
+    Ordinary tests can never reach it: validation rejects a taken slot long
+    before the insert. The failure is injected here so the handler is covered,
+    while TestConcurrentBooking proves the races themselves are real.
+    """
+
+    class DriverError(Exception):
+        """Stands in for the psycopg error Django wraps, which carries the
+        SQLSTATE the handler keys off."""
+
+        def __init__(self, sqlstate):
+            super().__init__(sqlstate)
+            self.sqlstate = sqlstate
+
+    def _raising(self, exc_class, sqlstate):
+        error = exc_class("simulated")
+        error.__cause__ = self.DriverError(sqlstate)
+        return error
+
+    def _book(self, client, provider, start):
+        return client.post(
+            "/api/appointments/",
+            {"provider": provider.pk, "start_at": iso(start)},
+            format="json",
+        )
+
+    @pytest.mark.parametrize(
+        "exc_class,sqlstate,label",
+        [
+            (IntegrityError, "23P01", "exclusion constraint"),
+            (OperationalError, "40P01", "deadlock"),
+            (OperationalError, "40001", "serialization failure"),
+        ],
+    )
+    def test_a_lost_race_becomes_a_readable_error(
+        self, patient_client, provider, first_slot, frozen_clock,
+        exc_class, sqlstate, label,
+    ):
+        with patch.object(
+            ModelSerializer, "create", side_effect=self._raising(exc_class, sqlstate)
+        ):
+            response = self._book(patient_client, provider, first_slot)
+
+        assert response.status_code == 400, label
+        assert "start_at" in response.data
+        assert not Appointment.objects.exists()
+
+    def test_an_unrelated_database_error_is_not_swallowed(
+        self, patient_client, provider, first_slot, frozen_clock
+    ):
+        """A dropped connection must not be reported as a taken slot."""
+        connection_failure = self._raising(OperationalError, "08006")
+
+        with patch.object(ModelSerializer, "create", side_effect=connection_failure):
+            with pytest.raises(OperationalError):
+                self._book(patient_client, provider, first_slot)
 
 
 class TestStaffBooking:

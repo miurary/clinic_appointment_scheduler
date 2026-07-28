@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   spacer: { flex: 1 },
-  primary: { paddingHorizontal: 20 },
+  primary: {},
   column: { flex: 1 },
   columnLabel: { marginBottom: 6 },
   list: {

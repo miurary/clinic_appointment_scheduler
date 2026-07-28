@@ -16,6 +16,10 @@ type Props = {
 
 const PAD = { sm: 10, md: 12, lg: 15 } as const;
 const FONT = { sm: 13.5, md: 14, lg: 16 } as const;
+// Horizontal breathing room INSIDE the filled area. Without this the gradient
+// hugs the label, and callers that added padding to the outer Pressable were
+// spacing around the button rather than inside it.
+const PAD_X = { sm: 18, md: 24, lg: 28 } as const;
 
 /**
  * The primary CTA: a vertical teal gradient with a glow.
@@ -40,7 +44,11 @@ export function PrimaryButton({
       <View
         style={[
           styles.base,
-          { paddingVertical: PAD[size], backgroundColor: color.disabledBg },
+          {
+            paddingVertical: PAD[size],
+            paddingHorizontal: PAD_X[size],
+            backgroundColor: color.disabledBg,
+          },
           block && styles.block,
           style,
         ]}
@@ -69,7 +77,11 @@ export function PrimaryButton({
           style={[
             styles.base,
             shadow.cta,
-            { paddingVertical: PAD[size], opacity: pressed ? 0.9 : hovered ? 0.94 : 1 },
+            {
+              paddingVertical: PAD[size],
+              paddingHorizontal: PAD_X[size],
+              opacity: pressed ? 0.9 : hovered ? 0.94 : 1,
+            },
           ]}
         >
           <View style={styles.insetHighlight} />

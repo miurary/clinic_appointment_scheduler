@@ -807,7 +807,7 @@ const styles = StyleSheet.create({
     borderTopColor: color.borderSoft,
     gap: 20,
   },
-  continueDesktop: { paddingHorizontal: 28 },
+  continueDesktop: {},
   mobileBody: { padding: 20, paddingBottom: 32, gap: 14 },
   mobileProvider: {
     flexDirection: 'row',

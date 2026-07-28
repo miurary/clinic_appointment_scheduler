@@ -375,7 +375,7 @@ const styles = StyleSheet.create({
     paddingTop: 18,
   },
   emptyUpcoming: { alignItems: 'center', paddingVertical: 34 },
-  emptyCta: { marginTop: 16, paddingHorizontal: 24 },
+  emptyCta: { marginTop: 16 },
   emptyPast: { alignItems: 'center', paddingVertical: 22 },
   pastRow: {
     backgroundColor: color.card,

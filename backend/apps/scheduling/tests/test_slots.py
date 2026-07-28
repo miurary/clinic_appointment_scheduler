@@ -6,6 +6,7 @@ Where a count cannot come from the window -- the DST transition days, where wall
 clock and real elapsed time disagree -- the real hours are stated explicitly and
 the discrepancy is the point of the test.
 """
+from dataclasses import replace
 from datetime import date, time, timedelta
 
 import pytest
@@ -18,7 +19,17 @@ from apps.scheduling.models import (
     Weekday,
 )
 from apps.scheduling.services.slots import generate_slots
-from testkit import LA, NY, hhmm, local_ends, local_starts, slot_at, utc
+from testkit import (
+    ADELAIDE,
+    KOLKATA,
+    LA,
+    NY,
+    hhmm,
+    local_ends,
+    local_starts,
+    slot_at,
+    utc,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -49,33 +60,39 @@ class TestWindowExpansion:
     def test_a_shorter_window_yields_proportionally_fewer_slots(
         self, provider, provider_spec, monday, frozen_clock
     ):
+        # The spec variant describes the provider after the change, so the
+        # expected count derives itself rather than being worked out by hand.
+        shortened = replace(provider_spec, closes=time(12, 0))
         rule = provider.availability_rules.get()
-        rule.end_time = time(12, 0)  # 09:00-12:00
+        rule.end_time = shortened.closes
         rule.save()
 
         starts = local_starts(generate_slots(provider, monday, monday))
 
-        assert len(starts) == provider_spec.slots_in_hours(3)
+        assert len(starts) == shortened.slot_count
         assert "12:00" not in starts
 
     def test_split_day_leaves_the_lunch_gap_empty(
         self, provider, provider_spec, monday, frozen_clock
     ):
         """A real schedule is two windows with a break, not one block."""
+        morning_spec = replace(provider_spec, closes=time(12, 0))
+        afternoon_spec = replace(provider_spec, opens=time(13, 0), closes=time(17, 0))
+
         morning = provider.availability_rules.get()
-        morning.end_time = time(12, 0)  # 09:00-12:00, three hours
+        morning.end_time = morning_spec.closes
         morning.save()
         AvailabilityRule.objects.create(
             provider=provider,
             weekday=Weekday.MONDAY,
-            start_time=time(13, 0),  # 13:00-17:00, four hours
-            end_time=time(17, 0),
+            start_time=afternoon_spec.opens,
+            end_time=afternoon_spec.closes,
             valid_from=date(2020, 1, 1),
         )
 
         starts = local_starts(generate_slots(provider, monday, monday))
 
-        assert len(starts) == provider_spec.slots_in_hours(3) + provider_spec.slots_in_hours(4)
+        assert len(starts) == morning_spec.slot_count + afternoon_spec.slot_count
         assert "11:30" in starts
         assert "13:00" in starts
         assert not any(s.startswith("12:") for s in starts)  # the break
@@ -143,14 +160,16 @@ class TestRuleValidityWindow:
         self, provider, provider_spec, monday, frozen_clock
     ):
         """Old hours end, new shorter hours begin the following week."""
+        new_hours = replace(provider_spec, opens=time(10, 0), closes=time(14, 0))
+
         old = provider.availability_rules.get()
         old.valid_until = monday
         old.save()
         AvailabilityRule.objects.create(
             provider=provider,
             weekday=Weekday.MONDAY,
-            start_time=time(10, 0),  # 10:00-14:00, four hours
-            end_time=time(14, 0),
+            start_time=new_hours.opens,
+            end_time=new_hours.closes,
             valid_from=monday + timedelta(days=1),
         )
         next_monday = monday + timedelta(days=7)
@@ -159,8 +178,8 @@ class TestRuleValidityWindow:
         next_week = generate_slots(provider, next_monday, next_monday)
 
         assert len(this_week) == provider_spec.slot_count
-        assert len(next_week) == provider_spec.slots_in_hours(4)
-        assert local_starts(next_week)[0] == "10:00"
+        assert len(next_week) == new_hours.slot_count
+        assert local_starts(next_week)[0] == hhmm(new_hours.opens)
 
 
 class TestSubtraction:
@@ -186,10 +205,13 @@ class TestSubtraction:
     def test_time_off_is_removed(
         self, provider, provider_spec, monday, time_off, frozen_clock
     ):
-        """One hour off covers two 30 minute slots: 15:00 and 15:30."""
+        """The blocked window removes exactly the slots it covers."""
+        blocked_minutes = (time_off.end_at - time_off.start_at).total_seconds() / 60
+        covered = int(blocked_minutes // provider_spec.slot_minutes)
+
         starts = local_starts(generate_slots(provider, monday, monday))
 
-        assert len(starts) == provider_spec.slot_count - provider_spec.slots_in_hours(1)
+        assert len(starts) == provider_spec.slot_count - covered
         assert "15:00" not in starts
         assert "15:30" not in starts
 
@@ -322,8 +344,87 @@ class TestNoticeAndHorizon:
         assert latest <= monday + timedelta(days=horizon_days)
 
 
+class TestQueryCount:
+    """Slot generation runs on every calendar page load.
+
+    It fetches rules, time off and bookings once each and expands them in
+    Python, so the query count must not grow with the size of the range. These
+    are the guard against someone reintroducing a per-day query.
+    """
+
+    EXPECTED_QUERIES = 3  # availability rules, time off, active appointments
+
+    def test_generation_uses_a_fixed_number_of_queries(
+        self, provider, monday, frozen_clock, django_assert_num_queries
+    ):
+        with django_assert_num_queries(self.EXPECTED_QUERIES):
+            generate_slots(provider, monday, monday)
+
+    def test_a_longer_range_costs_no_extra_queries(
+        self, provider, monday, frozen_clock, django_assert_num_queries
+    ):
+        with django_assert_num_queries(self.EXPECTED_QUERIES):
+            generate_slots(provider, monday, monday + timedelta(days=56))
+
+    def test_existing_bookings_cost_no_extra_queries(
+        self, provider, monday, booked_appointment, time_off, frozen_clock,
+        django_assert_num_queries,
+    ):
+        with django_assert_num_queries(self.EXPECTED_QUERIES):
+            generate_slots(provider, monday, monday + timedelta(days=56))
+
+
 class TestProviderTimezone:
     """The provider's own timezone drives everything, not the server's."""
+
+    @pytest.mark.parametrize(
+        "provider_fixture,spec_fixture",
+        [
+            ("provider", "provider_spec"),
+            ("other_provider", "other_provider_spec"),
+            ("kolkata_provider", "kolkata_provider_spec"),
+        ],
+    )
+    def test_every_slot_is_exactly_one_slot_long(
+        self, request, provider_fixture, spec_fixture, monday, frozen_clock
+    ):
+        """Whatever the zone or slot length, no slot is short or long.
+
+        Uses the following Monday because the frozen instant (12:00 UTC) is
+        already 17:30 in Kolkata, so that provider's working day has ended.
+        """
+        provider = request.getfixturevalue(provider_fixture)
+        spec = request.getfixturevalue(spec_fixture)
+        next_monday = monday + timedelta(days=7)
+
+        slots = generate_slots(provider, next_monday, next_monday)
+
+        assert slots
+        durations = {s.end_at - s.start_at for s in slots}
+        assert durations == {timedelta(minutes=spec.slot_minutes)}
+
+    def test_half_hour_offset_zones_are_handled(
+        self, kolkata_provider, kolkata_provider_spec, monday, frozen_clock
+    ):
+        """UTC+5:30 catches anything that assumes whole-hour offsets.
+
+        The following Monday, not the frozen one: 12:00 UTC is already 17:30 in
+        Kolkata, so that day's window has closed and correctly yields nothing.
+        """
+        next_monday = monday + timedelta(days=7)
+
+        slots = generate_slots(kolkata_provider, next_monday, next_monday)
+
+        assert len(slots) == kolkata_provider_spec.slot_count
+        assert local_starts(slots, KOLKATA)[0] == hhmm(kolkata_provider_spec.opens)
+        # 09:00 in Kolkata is 03:30 UTC, not 03:00 or 04:00.
+        assert slots[0].start_at == utc(2026, 3, 9, 3, 30)
+
+    def test_a_day_already_over_in_the_providers_zone_yields_nothing(
+        self, kolkata_provider, monday, frozen_clock
+    ):
+        """The corollary: 12:00 UTC is past closing time in Kolkata."""
+        assert generate_slots(kolkata_provider, monday, monday) == []
 
     def test_pacific_provider_generates_pacific_local_hours(
         self, other_provider, other_provider_spec, monday, frozen_clock
@@ -429,3 +530,49 @@ class TestDaylightSaving:
         slots = generate_slots(dst_provider, normal_sunday, normal_sunday)
 
         assert len(slots) == dst_provider_spec.slot_count
+
+
+class TestSouthernHemisphereDaylightSaving:
+    """The same handling, with the transitions the other way round.
+
+    Australia/Adelaide goes forward in October and back in April, and sits at a
+    half-hour offset. If the transition logic were hard-coded to US rules or to
+    whole-hour offsets, these would fail while the New York tests still passed.
+    """
+
+    SPRING_FORWARD = date(2026, 10, 4)  # 02:00 -> 03:00, one hour vanishes
+    FALL_BACK = date(2026, 4, 5)  # 03:00 -> 02:00, one hour repeats
+
+    def test_no_slot_is_offered_in_the_missing_hour(
+        self, adelaide_provider, frozen_clock
+    ):
+        slots = generate_slots(
+            adelaide_provider, self.SPRING_FORWARD, self.SPRING_FORWARD
+        )
+
+        assert not any(s.startswith("02:") for s in local_starts(slots, ADELAIDE))
+
+    def test_spring_forward_day_loses_an_hour(
+        self, adelaide_provider, adelaide_provider_spec, frozen_clock
+    ):
+        slots = generate_slots(
+            adelaide_provider, self.SPRING_FORWARD, self.SPRING_FORWARD
+        )
+
+        assert len(slots) == adelaide_provider_spec.slots_in_hours(3)
+
+    def test_fall_back_day_gains_an_hour(
+        self, adelaide_provider, adelaide_provider_spec, frozen_clock
+    ):
+        slots = generate_slots(adelaide_provider, self.FALL_BACK, self.FALL_BACK)
+
+        assert len(slots) == adelaide_provider_spec.slots_in_hours(5)
+
+    def test_an_ordinary_sunday_is_unaffected(
+        self, adelaide_provider, adelaide_provider_spec, frozen_clock
+    ):
+        normal_sunday = self.SPRING_FORWARD + timedelta(days=7)
+
+        slots = generate_slots(adelaide_provider, normal_sunday, normal_sunday)
+
+        assert len(slots) == adelaide_provider_spec.slot_count

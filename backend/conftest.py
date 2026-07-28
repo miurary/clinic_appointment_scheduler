@@ -104,6 +104,15 @@ DST_PROVIDER_SPEC = ProviderSpec(
     slot_minutes=30,
 )
 
+# Asia/Kolkata is UTC+5:30 and never observes DST: it catches code that assumes
+# whole-hour offsets, without any transition to muddy the result.
+KOLKATA_PROVIDER_SPEC = replace(PROVIDER_SPEC, timezone="Asia/Kolkata")
+
+# Australia/Adelaide is UTC+9:30 and its DST runs the opposite way round to the
+# northern hemisphere -- clocks go forward in October, back in April. Proves the
+# transition handling is not hard-coded to US rules.
+ADELAIDE_PROVIDER_SPEC = replace(DST_PROVIDER_SPEC, timezone="Australia/Adelaide")
+
 # Variants of the standard provider, expressed as deltas so the relationship
 # stays visible and a change to PROVIDER_SPEC carries through. Declaring these
 # is what lets tests stop mutating a model mid-test to set up their own world.
@@ -199,6 +208,16 @@ def dst_provider_spec():
 
 
 @pytest.fixture
+def kolkata_provider_spec():
+    return KOLKATA_PROVIDER_SPEC
+
+
+@pytest.fixture
+def adelaide_provider_spec():
+    return ADELAIDE_PROVIDER_SPEC
+
+
+@pytest.fixture
 def buffered_provider_spec():
     return BUFFERED_PROVIDER_SPEC
 
@@ -250,6 +269,22 @@ def other_provider(db):
     """Los Angeles, Mondays 10:00-16:00, 60 minute slots."""
     return make_provider(
         "other.provider@example.com", "Robin", "Elsewhere", OTHER_PROVIDER_SPEC
+    )
+
+
+@pytest.fixture
+def kolkata_provider(db):
+    """Mondays 09:00-17:00 at UTC+5:30, with no DST anywhere in the year."""
+    return make_provider(
+        "kolkata.provider@example.com", "Kiran", "Rao", KOLKATA_PROVIDER_SPEC
+    )
+
+
+@pytest.fixture
+def adelaide_provider(db):
+    """Sundays 01:00-05:00 at UTC+9:30, with southern-hemisphere DST."""
+    return make_provider(
+        "adelaide.provider@example.com", "Alex", "Downunder", ADELAIDE_PROVIDER_SPEC
     )
 
 

@@ -9,6 +9,10 @@ from zoneinfo import ZoneInfo
 
 NY = ZoneInfo("America/New_York")
 LA = ZoneInfo("America/Los_Angeles")
+# Half-hour offset, and no DST at all.
+KOLKATA = ZoneInfo("Asia/Kolkata")
+# Half-hour offset, and DST that runs the opposite way round to the US.
+ADELAIDE = ZoneInfo("Australia/Adelaide")
 
 
 def utc(year, month, day, hour, minute=0) -> datetime:

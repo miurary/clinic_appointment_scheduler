@@ -16,6 +16,7 @@ pytestmark = pytest.mark.django_db
 REGISTER = "/api/auth/register/"
 TOKEN = "/api/auth/token/"
 REFRESH = "/api/auth/token/refresh/"
+LOGOUT = "/api/auth/logout/"
 ME = "/api/auth/me/"
 
 GOOD_PASSWORD = "correct-horse-battery-1"
@@ -353,15 +354,14 @@ class TestTokenLifecycle:
         assert response.status_code == 200
         assert response.data["refresh"] != tokens["refresh"]
 
-    def test_the_previous_refresh_token_still_works_after_rotation(
+    def test_the_previous_refresh_token_is_revoked_after_rotation(
         self, api_client, patient, password
     ):
-        """Documents a real gap rather than asserting desired behaviour.
+        """BLACKLIST_AFTER_ROTATION is what makes rotation worth anything.
 
-        ROTATE_REFRESH_TOKENS issues a replacement but does not invalidate the
-        old one. Revocation needs SimpleJWT's token_blacklist app installed and
-        BLACKLIST_AFTER_ROTATION enabled. Until then a stolen refresh token
-        stays usable for its full lifetime even after the victim refreshes.
+        Rotation alone hands out a replacement and leaves the old token valid
+        for its full seven days, so a stolen one survives the real user
+        refreshing. Blacklisting closes that window.
         """
         tokens = self._tokens(api_client, patient, password)
         api_client.post(REFRESH, {"refresh": tokens["refresh"]}, format="json")
@@ -370,17 +370,91 @@ class TestTokenLifecycle:
             REFRESH, {"refresh": tokens["refresh"]}, format="json"
         )
 
-        assert reused.status_code == 200
+        assert reused.status_code == 401
+
+    def test_the_rotated_replacement_still_works(
+        self, api_client, patient, password
+    ):
+        """Revoking the old token must not revoke the one that replaced it."""
+        tokens = self._tokens(api_client, patient, password)
+        rotated = api_client.post(
+            REFRESH, {"refresh": tokens["refresh"]}, format="json"
+        )
+
+        again = api_client.post(
+            REFRESH, {"refresh": rotated.data["refresh"]}, format="json"
+        )
+
+        assert again.status_code == 200
 
 
-class TestEmailCaseSensitivity:
-    """Pins current behaviour on a decision worth revisiting.
+class TestLogout:
+    """Deliberate revocation, as opposed to rotation's incidental kind."""
 
-    normalize_email lowercases only the domain, so the local part stays
-    case-sensitive. That is RFC-defensible and wrong for a patient portal:
-    someone who signs up as pat@ and later types Pat@ cannot log in, and can
-    silently create a second account instead. Fixing it means a citext column
-    or normalising on save.
+    def _tokens(self, api_client, patient, password):
+        return api_client.post(
+            TOKEN, {"email": patient.email, "password": password}, format="json"
+        ).data
+
+    def test_logging_out_revokes_the_refresh_token(
+        self, api_client, patient, password
+    ):
+        tokens = self._tokens(api_client, patient, password)
+
+        logout = api_client.post(
+            LOGOUT, {"refresh": tokens["refresh"]}, format="json"
+        )
+
+        assert logout.status_code == 204
+        reused = api_client.post(
+            REFRESH, {"refresh": tokens["refresh"]}, format="json"
+        )
+        assert reused.status_code == 401
+
+    def test_an_already_issued_access_token_outlives_logout(
+        self, api_client, patient, password
+    ):
+        """The tradeoff JWTs make, stated as a test rather than left implicit.
+
+        Access tokens are verified by signature, not looked up in the database,
+        so logging out cannot retract one that is already in the wild. A short
+        ACCESS_TOKEN_LIFETIME is what bounds the exposure.
+        """
+        tokens = self._tokens(api_client, patient, password)
+        api_client.post(LOGOUT, {"refresh": tokens["refresh"]}, format="json")
+
+        response = api_client.get(ME, HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        assert response.status_code == 200
+
+    def test_logging_out_twice_is_rejected(self, api_client, patient, password):
+        tokens = self._tokens(api_client, patient, password)
+        api_client.post(LOGOUT, {"refresh": tokens["refresh"]}, format="json")
+
+        second = api_client.post(
+            LOGOUT, {"refresh": tokens["refresh"]}, format="json"
+        )
+
+        assert second.status_code == 400
+
+    def test_a_garbage_token_is_rejected(self, api_client, db):
+        response = api_client.post(LOGOUT, {"refresh": "not-a-token"}, format="json")
+
+        assert response.status_code == 400
+
+    def test_the_refresh_token_is_required(self, api_client, db):
+        response = api_client.post(LOGOUT, {}, format="json")
+
+        assert response.status_code == 400
+        assert "refresh" in response.data
+
+
+class TestEmailCaseInsensitivity:
+    """The email column is citext, so capitalisation never splits an account.
+
+    Without it, someone who signs up as pat@ and later types Pat@ cannot log
+    in, and registering again silently creates a second patient record --
+    duplicate clinical history for one person.
     """
 
     def _register(self, api_client, email):
@@ -397,21 +471,36 @@ class TestEmailCaseSensitivity:
 
         assert response.status_code == 200
 
-    def test_the_local_part_is_case_sensitive_on_login(self, api_client, db):
+    def test_the_local_part_is_case_insensitive_on_login(self, api_client, db):
         self._register(api_client, "pat@example.com")
 
         response = api_client.post(
             TOKEN, {"email": "Pat@example.com", "password": GOOD_PASSWORD}, format="json"
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 200
 
-    def test_differing_case_creates_a_second_account(self, api_client, db):
-        """The user-facing hazard: a duplicate patient record."""
+    def test_differing_case_cannot_create_a_second_account(self, api_client, db):
         assert self._register(api_client, "pat@example.com").status_code == 201
-        assert self._register(api_client, "Pat@example.com").status_code == 201
 
-        assert User.objects.filter(email__iexact="pat@example.com").count() == 2
+        duplicate = self._register(api_client, "Pat@example.com")
+
+        assert duplicate.status_code == 400
+        assert "email" in duplicate.data
+        assert User.objects.count() == 1
+
+    def test_lookups_are_case_insensitive_at_the_orm_level(self, api_client, db):
+        """Plain `=` matching is enough; no iexact needed anywhere in the code."""
+        self._register(api_client, "pat@example.com")
+
+        assert User.objects.filter(email="PAT@EXAMPLE.COM").exists()
+
+    def test_partial_email_search_still_works(self, api_client, db):
+        """citext rather than a non-deterministic collation was chosen exactly
+        so LIKE keeps working -- the admin's patient search depends on it."""
+        self._register(api_client, "pat@example.com")
+
+        assert User.objects.filter(email__icontains="AT@EXAM").exists()
 
 
 class TestMe:
@@ -471,13 +560,17 @@ class TestUserModel:
         with pytest.raises(ValueError):
             User.objects.create_user(email="", password=GOOD_PASSWORD)
 
-    def test_email_domains_are_normalised(self, db):
+    def test_email_domains_are_normalised_on_the_way_in(self, db):
+        """normalize_email lowercases the domain but preserves the local part.
+
+        Case-insensitivity comes from the citext column, not from this: the
+        address is stored as typed, and Postgres compares it without regard to
+        case. See TestEmailCaseInsensitivity.
+        """
         user = User.objects.create_user(
             email="Mixed@EXAMPLE.COM", password=GOOD_PASSWORD
         )
 
-        # normalize_email lowercases the domain only; the local part is left
-        # alone, so this is not case-insensitive login.
         assert user.email == "Mixed@example.com"
 
     def test_role_helpers_agree_with_the_role_field(self, patient, provider, staff):

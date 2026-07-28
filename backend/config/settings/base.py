@@ -34,6 +34,9 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     # Third party
     "rest_framework",
+    # Stores revoked refresh tokens. Without it, rotation issues a replacement
+    # but the old token stays valid until it expires.
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
     "drf_spectacular",
@@ -138,6 +141,10 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
+    # Rotation alone only hands out a replacement. This is what actually
+    # revokes the superseded token, so a stolen refresh token stops working as
+    # soon as the real user refreshes.
+    "BLACKLIST_AFTER_ROTATION": True,
 }
 
 SPECTACULAR_SETTINGS = {

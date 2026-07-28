@@ -81,6 +81,10 @@ class RegistrationSerializer(serializers.ModelSerializer):
         return user
 
 
+class LogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField(write_only=True)
+
+
 class PatientProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
 

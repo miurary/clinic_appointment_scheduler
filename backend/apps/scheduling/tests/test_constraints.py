@@ -9,6 +9,7 @@ aborts the surrounding transaction, and pytest-django runs each test inside
 one, so without an inner savepoint the following line fails with
 TransactionManagementError instead of the assertion under test.
 """
+
 import threading
 from datetime import date, time, timedelta
 
@@ -254,12 +255,16 @@ class TestBypassAttempts:
                 Appointment.objects.bulk_create(
                     [
                         Appointment(
-                            provider=provider, patient=patient,
-                            start_at=start, end_at=end,
+                            provider=provider,
+                            patient=patient,
+                            start_at=start,
+                            end_at=end,
                         ),
                         Appointment(
-                            provider=provider, patient=other_patient,
-                            start_at=start, end_at=end,
+                            provider=provider,
+                            patient=other_patient,
+                            start_at=start,
+                            end_at=end,
                         ),
                     ]
                 )

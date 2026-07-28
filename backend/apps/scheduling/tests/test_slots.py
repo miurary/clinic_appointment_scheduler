@@ -6,6 +6,7 @@ Where a count cannot come from the window -- the DST transition days, where wall
 clock and real elapsed time disagree -- the real hours are stated explicitly and
 the discrepancy is the point of the test.
 """
+
 from dataclasses import replace
 from datetime import date, time, timedelta
 
@@ -367,7 +368,12 @@ class TestQueryCount:
             generate_slots(provider, monday, monday + timedelta(days=56))
 
     def test_existing_bookings_cost_no_extra_queries(
-        self, provider, monday, booked_appointment, time_off, frozen_clock,
+        self,
+        provider,
+        monday,
+        booked_appointment,
+        time_off,
+        frozen_clock,
         django_assert_num_queries,
     ):
         with django_assert_num_queries(self.EXPECTED_QUERIES):
@@ -449,7 +455,13 @@ class TestProviderTimezone:
         assert slots[0].start_at == utc(2026, 3, 2, 18, 0)
 
     def test_two_providers_in_different_zones_do_not_interfere(
-        self, provider, provider_spec, other_provider, other_provider_spec, monday, frozen_clock
+        self,
+        provider,
+        provider_spec,
+        other_provider,
+        other_provider_spec,
+        monday,
+        frozen_clock,
     ):
         eastern = generate_slots(provider, monday, monday)
         pacific = generate_slots(other_provider, monday, monday)
@@ -483,7 +495,12 @@ class TestDaylightSaving:
 
         assert len(slots) == dst_provider_spec.slots_in_hours(3)
         assert local_starts(slots) == [
-            "01:00", "01:30", "03:00", "03:30", "04:00", "04:30",
+            "01:00",
+            "01:30",
+            "03:00",
+            "03:30",
+            "04:00",
+            "04:30",
         ]
 
     def test_slots_stay_contiguous_in_real_time(
@@ -492,7 +509,9 @@ class TestDaylightSaving:
         """Wall clock jumps 01:30 -> 03:00, but the instants are one slot apart."""
         slots = generate_slots(dst_provider, self.SPRING_FORWARD, self.SPRING_FORWARD)
 
-        gaps = {slots[i + 1].start_at - slots[i].start_at for i in range(len(slots) - 1)}
+        gaps = {
+            slots[i + 1].start_at - slots[i].start_at for i in range(len(slots) - 1)
+        }
         assert gaps == {timedelta(minutes=dst_provider_spec.slot_minutes)}
 
     def test_fall_back_day_gains_an_hour(

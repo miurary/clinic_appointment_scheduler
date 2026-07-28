@@ -1,5 +1,9 @@
 from django.contrib.postgres.constraints import ExclusionConstraint
-from django.contrib.postgres.fields import DateTimeRangeField, RangeBoundary, RangeOperators
+from django.contrib.postgres.fields import (
+    DateTimeRangeField,
+    RangeBoundary,
+    RangeOperators,
+)
 from django.db import models
 from django.db.models import Func, Q
 

@@ -13,6 +13,7 @@ Each provider is built from a ProviderSpec, and tests derive their expected slot
 counts from the same spec. That keeps expectations like "16 slots" out of the
 assertions: change a window or a slot length in one place and the tests follow.
 """
+
 from dataclasses import dataclass, replace
 from datetime import date, time
 

@@ -96,7 +96,12 @@ class UserAdmin(BaseUserAdmin):
 
 @admin.register(ProviderProfile)
 class ProviderProfileAdmin(admin.ModelAdmin):
-    list_display = ("user", "specialty", "slot_duration_minutes", "accepting_new_patients")
+    list_display = (
+        "user",
+        "specialty",
+        "slot_duration_minutes",
+        "accepting_new_patients",
+    )
     list_filter = ("accepting_new_patients", "specialty")
     search_fields = ("user__email", "user__first_name", "user__last_name", "specialty")
     list_select_related = ("user",)

@@ -7,3 +7,6 @@ pytest-django==4.12.0
 # Freezes the clock. Slot generation reads timezone.now(), so without this the
 # suite behaves differently depending on the day it happens to run.
 time-machine==3.2.0
+
+# Linter and formatter, replacing flake8 + isort + pyupgrade + black.
+ruff==0.16.0

@@ -41,7 +41,9 @@ class ProviderViewSet(viewsets.ReadOnlyModelViewSet):
 
     @extend_schema(
         parameters=[
-            OpenApiParameter("date_from", str, description="YYYY-MM-DD, provider local"),
+            OpenApiParameter(
+                "date_from", str, description="YYYY-MM-DD, provider local"
+            ),
             OpenApiParameter("date_to", str, description="YYYY-MM-DD, provider local"),
         ],
         responses=SlotSerializer(many=True),
@@ -189,6 +191,11 @@ class AppointmentViewSet(
             "cancellation_reason", ""
         )
         appointment.save(
-            update_fields=["status", "cancelled_at", "cancellation_reason", "updated_at"]
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancellation_reason",
+                "updated_at",
+            ]
         )
         return Response(AppointmentSerializer(appointment).data)

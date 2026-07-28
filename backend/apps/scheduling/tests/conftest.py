@@ -13,6 +13,7 @@ like "15:00 UTC" is only meaningful given the provider's opening hour and
 timezone, so it silently stops describing a real slot the moment a spec
 changes; deriving it means the fixture follows instead.
 """
+
 from datetime import timedelta
 
 import pytest

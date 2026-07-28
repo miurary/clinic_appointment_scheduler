@@ -29,7 +29,9 @@ def _is_slot_conflict(exc: Exception) -> bool:
 
 
 class AvailabilityRuleSerializer(serializers.ModelSerializer):
-    weekday_display = serializers.CharField(source="get_weekday_display", read_only=True)
+    weekday_display = serializers.CharField(
+        source="get_weekday_display", read_only=True
+    )
 
     class Meta:
         model = AvailabilityRule
@@ -51,8 +53,12 @@ class AvailabilityRuleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"end_time": "End time must be after start time."}
             )
-        valid_from = attrs.get("valid_from") or getattr(self.instance, "valid_from", None)
-        valid_until = attrs.get("valid_until") or getattr(self.instance, "valid_until", None)
+        valid_from = attrs.get("valid_from") or getattr(
+            self.instance, "valid_from", None
+        )
+        valid_until = attrs.get("valid_until") or getattr(
+            self.instance, "valid_until", None
+        )
         if valid_from and valid_until and valid_until < valid_from:
             raise serializers.ValidationError(
                 {"valid_until": "Must be on or after valid_from."}
@@ -103,7 +109,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
 
 class AppointmentCreateSerializer(serializers.ModelSerializer):
-    provider = serializers.PrimaryKeyRelatedField(queryset=ProviderProfile.objects.all())
+    provider = serializers.PrimaryKeyRelatedField(
+        queryset=ProviderProfile.objects.all()
+    )
     # Booking on behalf of a patient; ignored unless the caller is clinic staff.
     patient_id = serializers.IntegerField(required=False, write_only=True)
 

@@ -1,14 +1,21 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
-from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import AllowAny
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .serializers import LogoutSerializer, RegistrationSerializer, UserSerializer
+from .permissions import IsPatient, IsProvider
+from .serializers import (
+    LogoutSerializer,
+    MyPatientProfileSerializer,
+    ProviderProfileSerializer,
+    RegistrationSerializer,
+    UserSerializer,
+)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -34,6 +41,38 @@ class MeView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class MyProviderProfileView(generics.RetrieveUpdateAPIView):
+    """A provider's own scheduling settings.
+
+    Separate from the public /api/providers/ directory, which is read-only and
+    trimmed: this is where slot length, buffer, notice, horizon and
+    accepting_new_patients are actually changed. Without it a provider can
+    declare their hours but not how their day is divided.
+    """
+
+    serializer_class = ProviderProfileSerializer
+    permission_classes = [IsAuthenticated, IsProvider]
+
+    def get_object(self):
+        profile = getattr(self.request.user, "provider_profile", None)
+        if profile is None:
+            raise NotFound("This account has no provider profile.")
+        return profile
+
+
+class MyPatientProfileView(generics.RetrieveUpdateAPIView):
+    """A patient's own record, minus the staff-authored clinical notes."""
+
+    serializer_class = MyPatientProfileSerializer
+    permission_classes = [IsAuthenticated, IsPatient]
+
+    def get_object(self):
+        profile = getattr(self.request.user, "patient_profile", None)
+        if profile is None:
+            raise NotFound("This account has no patient profile.")
+        return profile
 
 
 @extend_schema(description="Exchange email and password for an access/refresh pair.")

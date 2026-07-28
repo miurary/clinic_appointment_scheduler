@@ -8,6 +8,7 @@ Times are built from the provider's ProviderSpec rather than written as ISO
 literals, so the tests still describe the same slot if a fixture's opening hour
 or slot length changes.
 """
+
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -194,7 +195,9 @@ class TestBooking:
         )
 
         appointment = Appointment.objects.get()
-        booked_minutes = (appointment.end_at - appointment.start_at).total_seconds() / 60
+        booked_minutes = (
+            appointment.end_at - appointment.start_at
+        ).total_seconds() / 60
         assert booked_minutes == provider_spec.slot_minutes
 
     def test_identity_comes_from_the_token_not_the_body(
@@ -318,8 +321,14 @@ class TestLostRaceHandling:
         ],
     )
     def test_a_lost_race_becomes_a_readable_error(
-        self, patient_client, provider, first_slot, frozen_clock,
-        exc_class, sqlstate, label,
+        self,
+        patient_client,
+        provider,
+        first_slot,
+        frozen_clock,
+        exc_class,
+        sqlstate,
+        label,
     ):
         with patch.object(
             ModelSerializer, "create", side_effect=self._raising(exc_class, sqlstate)
@@ -460,7 +469,12 @@ class TestProviderDirectory:
         assert response.data["timezone"] == provider.user.timezone
 
     def test_filters_by_specialty(
-        self, patient_client, provider, other_provider, other_provider_spec, frozen_clock
+        self,
+        patient_client,
+        provider,
+        other_provider,
+        other_provider_spec,
+        frozen_clock,
     ):
         response = patient_client.get(
             "/api/providers/", {"specialty": other_provider_spec.specialty}
@@ -602,7 +616,9 @@ class TestAppointmentIsolation:
         self, other_patient_client, booked_appointment, frozen_clock
     ):
         """404, not 403: a 403 would confirm the record exists."""
-        response = other_patient_client.get(f"/api/appointments/{booked_appointment.pk}/")
+        response = other_patient_client.get(
+            f"/api/appointments/{booked_appointment.pk}/"
+        )
 
         assert response.status_code == 404
 

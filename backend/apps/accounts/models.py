@@ -3,6 +3,7 @@ from zoneinfo import available_timezones
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
+
 # Aliased: this model has a `timezone` field, and a class-body assignment does
 # shadow the module-level name for statements later in the same class body.
 from django.utils import timezone as django_timezone

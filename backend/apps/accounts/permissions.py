@@ -5,14 +5,18 @@ class IsProvider(BasePermission):
     message = "Only providers may do this."
 
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_provider)
+        return bool(
+            request.user and request.user.is_authenticated and request.user.is_provider
+        )
 
 
 class IsPatient(BasePermission):
     message = "Only patients may do this."
 
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_patient)
+        return bool(
+            request.user and request.user.is_authenticated and request.user.is_patient
+        )
 
 
 class IsClinicStaff(BasePermission):
@@ -20,7 +24,9 @@ class IsClinicStaff(BasePermission):
 
     def has_permission(self, request, view):
         return bool(
-            request.user and request.user.is_authenticated and request.user.is_clinic_staff
+            request.user
+            and request.user.is_authenticated
+            and request.user.is_clinic_staff
         )
 
 

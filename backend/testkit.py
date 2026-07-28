@@ -4,13 +4,14 @@ Separate from conftest.py because these are functions tests call directly
 rather than fixtures pytest injects. Deliberately not named test_*.py, or
 pytest would try to collect it as a test module.
 """
-from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 # Monday 2026-03-02, 07:00 in New York -- before that day's 9-5 window, so
 # same-day booking is testable. It is also the Monday before the 2026 US
 # spring-forward (Sunday 2026-03-08), which the DST fixtures rely on.
-FROZEN_NOW = datetime(2026, 3, 2, 12, 0, tzinfo=dt_timezone.utc)
+FROZEN_NOW = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
 
 NY = ZoneInfo("America/New_York")
 LA = ZoneInfo("America/Los_Angeles")
@@ -22,7 +23,7 @@ ADELAIDE = ZoneInfo("Australia/Adelaide")
 
 def utc(year, month, day, hour, minute=0) -> datetime:
     """An aware UTC instant, for when a test means a specific absolute moment."""
-    return datetime(year, month, day, hour, minute, tzinfo=dt_timezone.utc)
+    return datetime(year, month, day, hour, minute, tzinfo=UTC)
 
 
 def slot_at(day: date, spec, index: int) -> datetime:

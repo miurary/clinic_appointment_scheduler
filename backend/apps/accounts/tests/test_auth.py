@@ -1,4 +1,5 @@
 """Registration, token issuance, and the boundaries of self-service editing."""
+
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -18,6 +19,8 @@ TOKEN = "/api/auth/token/"
 REFRESH = "/api/auth/token/refresh/"
 LOGOUT = "/api/auth/logout/"
 ME = "/api/auth/me/"
+ME_PROVIDER = "/api/auth/me/provider/"
+ME_PATIENT = "/api/auth/me/patient/"
 
 GOOD_PASSWORD = "correct-horse-battery-1"
 
@@ -169,7 +172,9 @@ class TestTokens:
 
         assert response.status_code == 401
 
-    def test_a_refresh_token_yields_a_new_access_token(self, api_client, patient, password):
+    def test_a_refresh_token_yields_a_new_access_token(
+        self, api_client, patient, password
+    ):
         pair = api_client.post(
             TOKEN, {"email": patient.email, "password": password}, format="json"
         )
@@ -181,7 +186,9 @@ class TestTokens:
         assert response.status_code == 200
         assert "access" in response.data
 
-    def test_an_issued_token_authenticates_a_request(self, api_client, patient, password):
+    def test_an_issued_token_authenticates_a_request(
+        self, api_client, patient, password
+    ):
         pair = api_client.post(
             TOKEN, {"email": patient.email, "password": password}, format="json"
         )
@@ -322,9 +329,7 @@ class TestTokenLifecycle:
         """Tokens carry a type claim; a refresh token is not an authenticator."""
         tokens = self._tokens(api_client, patient, password)
 
-        response = api_client.get(
-            ME, HTTP_AUTHORIZATION=f"Bearer {tokens['refresh']}"
-        )
+        response = api_client.get(ME, HTTP_AUTHORIZATION=f"Bearer {tokens['refresh']}")
 
         assert response.status_code == 401
 
@@ -342,9 +347,7 @@ class TestTokenLifecycle:
 
         assert response.status_code == 401
 
-    def test_refreshing_rotates_the_refresh_token(
-        self, api_client, patient, password
-    ):
+    def test_refreshing_rotates_the_refresh_token(self, api_client, patient, password):
         tokens = self._tokens(api_client, patient, password)
 
         response = api_client.post(
@@ -366,15 +369,11 @@ class TestTokenLifecycle:
         tokens = self._tokens(api_client, patient, password)
         api_client.post(REFRESH, {"refresh": tokens["refresh"]}, format="json")
 
-        reused = api_client.post(
-            REFRESH, {"refresh": tokens["refresh"]}, format="json"
-        )
+        reused = api_client.post(REFRESH, {"refresh": tokens["refresh"]}, format="json")
 
         assert reused.status_code == 401
 
-    def test_the_rotated_replacement_still_works(
-        self, api_client, patient, password
-    ):
+    def test_the_rotated_replacement_still_works(self, api_client, patient, password):
         """Revoking the old token must not revoke the one that replaced it."""
         tokens = self._tokens(api_client, patient, password)
         rotated = api_client.post(
@@ -396,19 +395,13 @@ class TestLogout:
             TOKEN, {"email": patient.email, "password": password}, format="json"
         ).data
 
-    def test_logging_out_revokes_the_refresh_token(
-        self, api_client, patient, password
-    ):
+    def test_logging_out_revokes_the_refresh_token(self, api_client, patient, password):
         tokens = self._tokens(api_client, patient, password)
 
-        logout = api_client.post(
-            LOGOUT, {"refresh": tokens["refresh"]}, format="json"
-        )
+        logout = api_client.post(LOGOUT, {"refresh": tokens["refresh"]}, format="json")
 
         assert logout.status_code == 204
-        reused = api_client.post(
-            REFRESH, {"refresh": tokens["refresh"]}, format="json"
-        )
+        reused = api_client.post(REFRESH, {"refresh": tokens["refresh"]}, format="json")
         assert reused.status_code == 401
 
     def test_an_already_issued_access_token_outlives_logout(
@@ -431,9 +424,7 @@ class TestLogout:
         tokens = self._tokens(api_client, patient, password)
         api_client.post(LOGOUT, {"refresh": tokens["refresh"]}, format="json")
 
-        second = api_client.post(
-            LOGOUT, {"refresh": tokens["refresh"]}, format="json"
-        )
+        second = api_client.post(LOGOUT, {"refresh": tokens["refresh"]}, format="json")
 
         assert second.status_code == 400
 
@@ -466,7 +457,9 @@ class TestEmailCaseInsensitivity:
         self._register(api_client, "pat@EXAMPLE.COM")
 
         response = api_client.post(
-            TOKEN, {"email": "pat@example.com", "password": GOOD_PASSWORD}, format="json"
+            TOKEN,
+            {"email": "pat@example.com", "password": GOOD_PASSWORD},
+            format="json",
         )
 
         assert response.status_code == 200
@@ -475,7 +468,9 @@ class TestEmailCaseInsensitivity:
         self._register(api_client, "pat@example.com")
 
         response = api_client.post(
-            TOKEN, {"email": "Pat@example.com", "password": GOOD_PASSWORD}, format="json"
+            TOKEN,
+            {"email": "Pat@example.com", "password": GOOD_PASSWORD},
+            format="json",
         )
 
         assert response.status_code == 200
@@ -540,11 +535,110 @@ class TestMe:
         patient.refresh_from_db()
         assert patient.email == original
 
-    def test_it_never_reaches_another_user(self, other_patient_client, patient, other_patient):
+    def test_it_never_reaches_another_user(
+        self, other_patient_client, patient, other_patient
+    ):
         """get_object ignores the URL entirely, so there is no id to tamper with."""
         response = other_patient_client.get(ME)
 
         assert response.data["email"] == other_patient.email
+
+
+class TestMyProviderProfile:
+    """Where a provider changes how their day is divided."""
+
+    def test_returns_the_callers_own_settings(
+        self, provider_client, provider, provider_spec
+    ):
+        response = provider_client.get(ME_PROVIDER)
+
+        assert response.status_code == 200
+        assert response.data["specialty"] == provider_spec.specialty
+        assert response.data["slot_duration_minutes"] == provider_spec.slot_minutes
+
+    def test_a_provider_can_change_their_scheduling_settings(
+        self, provider_client, provider
+    ):
+        response = provider_client.patch(
+            ME_PROVIDER,
+            {
+                "slot_duration_minutes": 45,
+                "buffer_minutes": 10,
+                "specialty": "Geriatrics",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        provider.refresh_from_db()
+        assert provider.slot_duration_minutes == 45
+        assert provider.buffer_minutes == 10
+        assert provider.specialty == "Geriatrics"
+
+    def test_a_provider_can_stop_accepting_new_patients(
+        self, provider_client, provider
+    ):
+        provider_client.patch(
+            ME_PROVIDER, {"accepting_new_patients": False}, format="json"
+        )
+
+        provider.refresh_from_db()
+        assert provider.accepting_new_patients is False
+
+    def test_it_never_reaches_another_provider(
+        self, provider_client, provider, other_provider
+    ):
+        """No id in the URL, so there is nothing to tamper with."""
+        provider_client.patch(ME_PROVIDER, {"slot_duration_minutes": 45}, format="json")
+
+        other_provider.refresh_from_db()
+        assert other_provider.slot_duration_minutes != 45
+
+    def test_patients_are_refused(self, patient_client):
+        assert patient_client.get(ME_PROVIDER).status_code == 403
+
+    def test_it_requires_authentication(self, api_client, db):
+        assert api_client.get(ME_PROVIDER).status_code == 401
+
+
+class TestMyPatientProfile:
+    def test_returns_the_callers_own_record(self, patient_client, patient):
+        response = patient_client.get(ME_PATIENT)
+
+        assert response.status_code == 200
+        assert response.data["user"]["email"] == patient.email
+
+    def test_a_patient_can_set_their_date_of_birth(self, patient_client, patient):
+        response = patient_client.patch(
+            ME_PATIENT, {"date_of_birth": "1990-05-17"}, format="json"
+        )
+
+        assert response.status_code == 200
+        patient.patient_profile.refresh_from_db()
+        assert str(patient.patient_profile.date_of_birth) == "1990-05-17"
+
+    def test_clinical_notes_are_not_exposed(self, patient_client, patient):
+        """Staff-authored notes are neither readable nor writable here."""
+        patient.patient_profile.notes = "Discussed medication adherence."
+        patient.patient_profile.save()
+
+        response = patient_client.get(ME_PATIENT)
+
+        assert "notes" not in response.data
+
+    def test_a_patient_cannot_write_their_own_notes(self, patient_client, patient):
+        patient_client.patch(
+            ME_PATIENT, {"notes": "I am in perfect health"}, format="json"
+        )
+
+        patient.patient_profile.refresh_from_db()
+        assert patient.patient_profile.notes == ""
+
+    def test_providers_are_refused(self, provider_client):
+        assert provider_client.get(ME_PATIENT).status_code == 403
+
+    def test_it_requires_authentication(self, api_client, db):
+        assert api_client.get(ME_PATIENT).status_code == 401
 
 
 class TestUserModel:

@@ -5,7 +5,14 @@ from .models import Appointment, AvailabilityRule, TimeOff
 
 @admin.register(AvailabilityRule)
 class AvailabilityRuleAdmin(admin.ModelAdmin):
-    list_display = ("provider", "weekday", "start_time", "end_time", "valid_from", "valid_until")
+    list_display = (
+        "provider",
+        "weekday",
+        "start_time",
+        "end_time",
+        "valid_from",
+        "valid_until",
+    )
     list_filter = ("weekday", "provider")
     list_select_related = ("provider", "provider__user")
     autocomplete_fields = ("provider",)
@@ -24,7 +31,12 @@ class TimeOffAdmin(admin.ModelAdmin):
 class AppointmentAdmin(admin.ModelAdmin):
     list_display = ("start_at", "end_at", "provider", "patient", "status")
     list_filter = ("status", "provider")
-    search_fields = ("patient__email", "patient__first_name", "patient__last_name", "reason")
+    search_fields = (
+        "patient__email",
+        "patient__first_name",
+        "patient__last_name",
+        "reason",
+    )
     list_select_related = ("provider", "provider__user", "patient")
     autocomplete_fields = ("provider", "patient", "booked_by")
     date_hierarchy = "start_at"

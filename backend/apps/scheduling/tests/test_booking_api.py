@@ -215,15 +215,33 @@ class TestBooking:
 
         assert Appointment.objects.get().patient == patient
 
-    def test_a_taken_slot_is_refused(
+    def test_a_taken_slot_is_refused_as_a_conflict(
         self, other_patient_client, provider, booked_appointment, frozen_clock
     ):
+        """409, not 400: the request was well formed, the slot simply went.
+
+        The booking UI keys off this to show "just booked by someone else"
+        rather than a field-level validation error.
+        """
         response = other_patient_client.post(
             "/api/appointments/",
             {
                 "provider": provider.pk,
                 "start_at": iso(booked_appointment.start_at),
             },
+            format="json",
+        )
+
+        assert response.status_code == 409
+        assert response.data["detail"].code == "slot_taken"
+
+    def test_a_time_that_was_never_offered_is_a_bad_request(
+        self, patient_client, provider, outside_hours, frozen_clock
+    ):
+        """The other half of that distinction: never on offer is a 400."""
+        response = patient_client.post(
+            "/api/appointments/",
+            {"provider": provider.pk, "start_at": iso(outside_hours)},
             format="json",
         )
 
@@ -335,8 +353,8 @@ class TestLostRaceHandling:
         ):
             response = self._book(patient_client, provider, first_slot)
 
-        assert response.status_code == 400, label
-        assert "start_at" in response.data
+        assert response.status_code == 409, label
+        assert response.data["detail"].code == "slot_taken"
         assert not Appointment.objects.exists()
 
     def test_an_unrelated_database_error_is_not_swallowed(
@@ -547,6 +565,195 @@ class TestAppointmentFiltering:
         )
 
         assert response.data["results"] == []
+
+
+class TestScopeFilter:
+    """?scope=upcoming|past, the split the patient dashboard renders."""
+
+    @pytest.fixture
+    def past_appointment(self, provider, provider_spec, patient, monday):
+        """A completed visit two weeks before the frozen clock."""
+        start = slot_at(monday - timedelta(days=14), provider_spec, index=2)
+        return Appointment.objects.create(
+            provider=provider,
+            patient=patient,
+            start_at=start,
+            end_at=start + timedelta(minutes=provider_spec.slot_minutes),
+            status=AppointmentStatus.COMPLETED,
+        )
+
+    def test_upcoming_excludes_history(
+        self, patient_client, booked_appointment, past_appointment, frozen_clock
+    ):
+        response = patient_client.get("/api/appointments/", {"scope": "upcoming"})
+
+        ids = [row["id"] for row in response.data["results"]]
+        assert ids == [booked_appointment.pk]
+
+    def test_past_excludes_the_future(
+        self, patient_client, booked_appointment, past_appointment, frozen_clock
+    ):
+        response = patient_client.get("/api/appointments/", {"scope": "past"})
+
+        ids = [row["id"] for row in response.data["results"]]
+        assert ids == [past_appointment.pk]
+
+    def test_upcoming_omits_cancelled_visits(
+        self, patient_client, booked_appointment, frozen_clock
+    ):
+        """A cancelled appointment is not something the patient still has."""
+        booked_appointment.status = AppointmentStatus.CANCELLED
+        booked_appointment.save()
+
+        response = patient_client.get("/api/appointments/", {"scope": "upcoming"})
+
+        assert response.data["results"] == []
+
+    def test_upcoming_reads_soonest_first(
+        self, patient_client, provider, provider_spec, patient, monday, frozen_clock
+    ):
+        later = slot_at(monday, provider_spec, index=8)
+        sooner = slot_at(monday, provider_spec, index=2)
+        for start in (later, sooner):
+            Appointment.objects.create(
+                provider=provider,
+                patient=patient,
+                start_at=start,
+                end_at=start + timedelta(minutes=provider_spec.slot_minutes),
+            )
+
+        response = patient_client.get("/api/appointments/", {"scope": "upcoming"})
+
+        starts = [parse_datetime(row["start_at"]) for row in response.data["results"]]
+        assert starts == [sooner, later]
+
+    def test_an_unknown_scope_is_rejected(self, patient_client, frozen_clock):
+        response = patient_client.get("/api/appointments/", {"scope": "sideways"})
+
+        assert response.status_code == 400
+        assert "scope" in response.data
+
+    def test_scope_does_not_widen_visibility(
+        self, other_patient_client, booked_appointment, frozen_clock
+    ):
+        response = other_patient_client.get("/api/appointments/", {"scope": "upcoming"})
+
+        assert response.data["results"] == []
+
+
+class TestReschedule:
+    def _reschedule(self, client, appointment, start):
+        return client.post(
+            f"/api/appointments/{appointment.pk}/reschedule/",
+            {"start_at": iso(start)},
+            format="json",
+        )
+
+    def test_a_patient_moves_their_visit_to_another_slot(
+        self, patient_client, provider_spec, monday, booked_appointment, frozen_clock
+    ):
+        target = slot_at(monday, provider_spec, index=8)
+
+        response = self._reschedule(patient_client, booked_appointment, target)
+
+        assert response.status_code == 200
+        booked_appointment.refresh_from_db()
+        assert booked_appointment.start_at == target
+        # end_at is recomputed, never taken from the client.
+        assert booked_appointment.end_at == target + timedelta(
+            minutes=provider_spec.slot_minutes
+        )
+
+    def test_the_original_slot_becomes_bookable_again(
+        self,
+        patient_client,
+        other_patient_client,
+        provider,
+        provider_spec,
+        monday,
+        booked_appointment,
+        frozen_clock,
+    ):
+        original = booked_appointment.start_at
+        self._reschedule(
+            patient_client, booked_appointment, slot_at(monday, provider_spec, index=8)
+        )
+
+        rebooked = other_patient_client.post(
+            "/api/appointments/",
+            {"provider": provider.pk, "start_at": iso(original)},
+            format="json",
+        )
+
+        assert rebooked.status_code == 201
+
+    def test_moving_onto_a_taken_slot_is_a_conflict(
+        self,
+        patient_client,
+        provider,
+        provider_spec,
+        other_patient,
+        monday,
+        booked_appointment,
+        frozen_clock,
+    ):
+        occupied = slot_at(monday, provider_spec, index=8)
+        Appointment.objects.create(
+            provider=provider,
+            patient=other_patient,
+            start_at=occupied,
+            end_at=occupied + timedelta(minutes=provider_spec.slot_minutes),
+        )
+
+        response = self._reschedule(patient_client, booked_appointment, occupied)
+
+        assert response.status_code == 409
+        booked_appointment.refresh_from_db()
+        assert booked_appointment.start_at != occupied
+
+    def test_moving_outside_availability_is_refused(
+        self, patient_client, outside_hours, booked_appointment, frozen_clock
+    ):
+        response = self._reschedule(patient_client, booked_appointment, outside_hours)
+
+        assert response.status_code == 400
+
+    def test_a_cancelled_visit_cannot_be_rescheduled(
+        self, patient_client, provider_spec, monday, booked_appointment, frozen_clock
+    ):
+        booked_appointment.status = AppointmentStatus.CANCELLED
+        booked_appointment.save()
+
+        response = self._reschedule(
+            patient_client, booked_appointment, slot_at(monday, provider_spec, index=8)
+        )
+
+        assert response.status_code == 400
+
+    def test_another_patient_cannot_move_your_visit(
+        self,
+        other_patient_client,
+        provider_spec,
+        monday,
+        booked_appointment,
+        frozen_clock,
+    ):
+        response = self._reschedule(
+            other_patient_client,
+            booked_appointment,
+            slot_at(monday, provider_spec, index=8),
+        )
+
+        assert response.status_code == 404
+
+    def test_it_requires_authentication(
+        self, api_client, provider_spec, monday, booked_appointment, frozen_clock
+    ):
+        response = self._reschedule(
+            api_client, booked_appointment, slot_at(monday, provider_spec, index=8)
+        )
+
+        assert response.status_code == 401
 
 
 class TestPagination:

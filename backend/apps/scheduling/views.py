@@ -22,6 +22,7 @@ from .models import Appointment, AppointmentStatus, AvailabilityRule, TimeOff
 from .serializers import (
     AppointmentCancelSerializer,
     AppointmentCreateSerializer,
+    AppointmentRescheduleSerializer,
     AppointmentSerializer,
     AvailabilityRuleSerializer,
     SlotSerializer,
@@ -138,16 +139,40 @@ class AppointmentViewSet(
             return AppointmentCreateSerializer
         if self.action == "cancel":
             return AppointmentCancelSerializer
+        if self.action == "reschedule":
+            return AppointmentRescheduleSerializer
         return AppointmentSerializer
 
     def get_queryset(self):
         user = self.request.user
         qs = Appointment.objects.select_related("provider__user", "patient")
         if user.is_clinic_staff:
+            pass
+        elif user.is_provider:
+            qs = qs.filter(provider__user=user)
+        else:
+            qs = qs.filter(patient=user)
+        return self._apply_scope(qs)
+
+    def _apply_scope(self, qs):
+        """?scope=upcoming|past, the split the patient dashboard is built on.
+
+        Server-side because a client filtering one page of results would
+        silently show the wrong thing once a patient has more than a page of
+        history. Ordering flips so each list reads nearest-first.
+        """
+        scope = self.request.query_params.get("scope")
+        if scope is None:
             return qs
-        if user.is_provider:
-            return qs.filter(provider__user=user)
-        return qs.filter(patient=user)
+        if scope not in {"upcoming", "past"}:
+            raise ValidationError({"scope": "Expected 'upcoming' or 'past'."})
+
+        now = timezone.now()
+        if scope == "upcoming":
+            return qs.filter(
+                start_at__gte=now, status=AppointmentStatus.SCHEDULED
+            ).order_by("start_at")
+        return qs.filter(start_at__lt=now).order_by("-start_at")
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -170,6 +195,36 @@ class AppointmentViewSet(
         # Echo back the full read shape rather than the thin create shape.
         output = AppointmentSerializer(serializer.instance)
         return Response(output.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=AppointmentRescheduleSerializer, responses=AppointmentSerializer
+    )
+    @action(detail=True, methods=["post"])
+    def reschedule(self, request, pk=None):
+        """Move an existing appointment to another open slot.
+
+        A dedicated action rather than an open PATCH: moving an appointment has
+        to re-run the same availability checks as booking it, and must not be a
+        route through which status or patient can be rewritten.
+
+        The exclusion constraint covers UPDATE as well as INSERT, so the same
+        conflict handling applies -- the row is validated against the generator
+        first, and the database still has the final say.
+        """
+        appointment = self.get_object()
+        if appointment.status != AppointmentStatus.SCHEDULED:
+            raise ValidationError(
+                {"status": "Only scheduled appointments can be rescheduled."}
+            )
+        if self.request.user.is_provider:
+            raise PermissionDenied("Providers cannot reschedule on their own calendar.")
+
+        serializer = AppointmentRescheduleSerializer(
+            appointment, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(AppointmentSerializer(appointment).data)
 
     @extend_schema(request=AppointmentCancelSerializer, responses=AppointmentSerializer)
     @action(detail=True, methods=["post"])

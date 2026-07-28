@@ -156,6 +156,60 @@ export function splitByHalfDay<T extends { start_at: string }>(
   return { morning, afternoon };
 }
 
+/** How far `timeZone` is from UTC at that instant, in milliseconds. */
+function zoneOffsetMs(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant);
+
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  // Hour comes back as 24 rather than 0 at midnight in some engines.
+  const hour = get('hour') % 24;
+  const asIfUtc = Date.UTC(
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    hour,
+    get('minute'),
+    get('second'),
+  );
+  return asIfUtc - instant.getTime();
+}
+
+/**
+ * A wall-clock date and time in `timeZone`, as a UTC instant.
+ *
+ * The inverse of everything else here: the provider types "2pm on the 14th"
+ * meaning 2pm where they are, and the server stores instants. Done in two
+ * passes because the offset itself depends on the instant -- guessing with the
+ * offset at the wrong side of a DST change would land an hour out. The second
+ * pass re-reads the offset at the corrected instant and settles.
+ *
+ * Times inside a spring-forward gap do not exist; this returns the instant the
+ * clock jumps to, which is the sane reading of "block out 2:30am" on a day
+ * where 2:30am never happens.
+ */
+export function zonedTimeToUtc(
+  dateKey: string,
+  time: string,
+  timeZone: string,
+): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  const naiveAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+
+  let instant = new Date(naiveAsUtc - zoneOffsetMs(new Date(naiveAsUtc), timeZone));
+  instant = new Date(naiveAsUtc - zoneOffsetMs(instant, timeZone));
+  return instant.toISOString();
+}
+
 export function minutesBetween(startIso: string, endIso: string): number {
   return Math.round(
     (new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000,

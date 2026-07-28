@@ -32,6 +32,24 @@ export type ProviderProfile = Provider & {
   min_notice_minutes: number;
 };
 
+/**
+ * The patient's own record from /api/auth/me/patient/.
+ * Clinical notes are staff-authored and deliberately not exposed here.
+ */
+export type PatientProfile = {
+  id: number;
+  user: User;
+  date_of_birth: string | null;
+};
+
+/** A one-off absence: absolute instants, not a weekly pattern. */
+export type TimeOff = {
+  id: number;
+  start_at: string;
+  end_at: string;
+  reason: string;
+};
+
 /** Computed, never stored: a slot is an offer, only a booking is a row. */
 export type Slot = {
   start_at: string;

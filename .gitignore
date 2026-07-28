@@ -25,6 +25,10 @@ db.sqlite3-journal
 .env.*
 !.env.example
 
+# --- Local dev ---
+# Service logs written by ./dev.sh
+.dev-logs/
+
 # --- Tests / tooling ---
 .pytest_cache/
 .coverage

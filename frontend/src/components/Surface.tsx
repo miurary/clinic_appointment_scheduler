@@ -78,7 +78,7 @@ export function Card({
   dashed,
 }: {
   children: ReactNode;
-  style?: ViewStyle | ViewStyle[];
+  style?: StyleProp<ViewStyle>;
   /** The teal left border on the upcoming-appointment card. */
   accent?: boolean;
   /** The dashed empty-state treatment. */

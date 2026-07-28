@@ -3,9 +3,11 @@ import type {
   Appointment,
   AvailabilityRule,
   Paginated,
+  PatientProfile,
   Provider,
   ProviderProfile,
   Slot,
+  TimeOff,
   TokenPair,
   User,
 } from './types';
@@ -54,6 +56,14 @@ export const api = {
 
     updateMyProviderProfile: (input: Partial<ProviderProfile>) =>
       request<ProviderProfile>('/api/auth/me/provider/', {
+        method: 'PATCH',
+        body: input,
+      }),
+
+    myPatientProfile: () => request<PatientProfile>('/api/auth/me/patient/'),
+
+    updateMyPatientProfile: (input: { date_of_birth: string | null }) =>
+      request<PatientProfile>('/api/auth/me/patient/', {
         method: 'PATCH',
         body: input,
       }),
@@ -113,5 +123,19 @@ export const api = {
 
     remove: (id: number) =>
       request<void>(`/api/availability/${id}/`, { method: 'DELETE' }),
+  },
+
+  /**
+   * One-off absences that punch holes in an otherwise available week.
+   * Unlike availability rules these are absolute instants, not wall-clock
+   * patterns, so the client sends full ISO datetimes.
+   */
+  timeOff: {
+    list: () => request<Paginated<TimeOff>>('/api/time-off/'),
+
+    create: (input: { start_at: string; end_at: string; reason?: string }) =>
+      request<TimeOff>('/api/time-off/', { method: 'POST', body: input }),
+
+    remove: (id: number) => request<void>(`/api/time-off/${id}/`, { method: 'DELETE' }),
   },
 };

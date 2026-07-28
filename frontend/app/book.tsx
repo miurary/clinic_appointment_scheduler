@@ -14,6 +14,7 @@ import type { Provider, Slot } from '../src/api/types';
 import { Avatar, Chip, initialsFor, Note, tintFor } from '../src/components/Bits';
 import { PrimaryButton } from '../src/components/Button';
 import { BottomTabs, MobileHeader, PATIENT_NAV, TopNav } from '../src/components/Nav';
+import { OptionColumn, Sheet } from '../src/components/Sheet';
 import { SlotButton } from '../src/components/SlotButton';
 import { AppCard, Card } from '../src/components/Surface';
 import { Body, Display, Label, Link, Muted, Semi, Strong } from '../src/components/Typography';
@@ -66,6 +67,9 @@ export default function BookScreen() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [visitType, setVisitType] = useState<string>(VISIT_TYPES[0].id);
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  // Mobile has no room for the desktop chip row, so provider choice moves
+  // into a sheet behind the "Change" affordance on the provider card.
+  const [providerSheetOpen, setProviderSheetOpen] = useState(false);
 
   const viewZone = booking.timezone;
   const provider = booking.provider;
@@ -137,7 +141,10 @@ export default function BookScreen() {
     [weekDays, viewZone],
   );
 
-  const activeDayKey = selectedDayKey ?? dayKeys[0];
+  // Falls back when the remembered day is not in the current week, which is
+  // what happens the moment the patient steps forward a week.
+  const activeDayKey =
+    selectedDayKey && dayKeys.includes(selectedDayKey) ? selectedDayKey : dayKeys[0];
   const daySlots = byDay.get(activeDayKey) ?? [];
   const emptyWeek = !loading && slots.length === 0;
 
@@ -305,6 +312,8 @@ export default function BookScreen() {
               ) : emptyWeek ? (
                 <EmptyWeek
                   providerName={provider?.full_name ?? 'This provider'}
+                  atCurrentWeek={weekOffset === 0}
+                  onNext={() => setWeekOffset((w) => w + 1)}
                   onBack={() => setWeekOffset((w) => Math.max(0, w - 1))}
                 />
               ) : (
@@ -397,6 +406,16 @@ export default function BookScreen() {
                 {provider.specialty} · {provider.slot_duration_minutes} min
               </Muted>
             </View>
+            <Pressable
+              onPress={() => setProviderSheetOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Change provider"
+              hitSlop={8}
+            >
+              <Semi size={12.5} style={{ color: color.link }}>
+                Change
+              </Semi>
+            </Pressable>
           </Card>
         ) : null}
 
@@ -417,6 +436,20 @@ export default function BookScreen() {
         </ScrollView>
 
         {timezoneNote}
+
+        {/* Without this the phone was pinned to the current week, so a fully
+            booked week was a dead end. */}
+        <View style={styles.mobileWeekBar}>
+          <WeekArrow
+            label="‹"
+            disabled={weekOffset === 0}
+            onPress={() => setWeekOffset((w) => Math.max(0, w - 1))}
+          />
+          <Semi size={13.5} style={styles.weekLabel}>
+            {weekLabel(weekStart)}
+          </Semi>
+          <WeekArrow label="›" onPress={() => setWeekOffset((w) => w + 1)} />
+        </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.dayPills}>
@@ -458,6 +491,8 @@ export default function BookScreen() {
         ) : daySlots.length === 0 ? (
           <EmptyWeek
             providerName={provider?.full_name ?? 'This provider'}
+            atCurrentWeek={weekOffset === 0}
+            onNext={() => setWeekOffset((w) => w + 1)}
             onBack={() => setWeekOffset((w) => Math.max(0, w - 1))}
           />
         ) : (
@@ -570,11 +605,19 @@ function WeekArrow({
   );
 }
 
+/**
+ * The action offers whichever direction actually goes somewhere: on the
+ * current week "back" is clamped to a no-op, so it offers next week instead.
+ */
 function EmptyWeek({
   providerName,
+  atCurrentWeek,
+  onNext,
   onBack,
 }: {
   providerName: string;
+  atCurrentWeek: boolean;
+  onNext: () => void;
   onBack: () => void;
 }) {
   return (
@@ -589,8 +632,14 @@ function EmptyWeek({
         {providerName} has no availability this week. Try another week, or pick a
         different provider.
       </Muted>
-      <Pressable onPress={onBack} accessibilityRole="button" style={styles.emptyAction}>
-        <Semi size={13.5}>‹ Back to this week</Semi>
+      <Pressable
+        onPress={atCurrentWeek ? onNext : onBack}
+        accessibilityRole="button"
+        style={styles.emptyAction}
+      >
+        <Semi size={13.5}>
+          {atCurrentWeek ? 'Try next week ›' : '‹ Back a week'}
+        </Semi>
       </Pressable>
     </View>
   );
@@ -697,6 +746,12 @@ const styles = StyleSheet.create({
   },
   tzRow: { flexDirection: 'row', justifyContent: 'space-between' },
   tzChips: { flexDirection: 'row', gap: 8 },
+  mobileWeekBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
   dayPills: { flexDirection: 'row', gap: 8, paddingVertical: 4 },
   dayPill: {
     width: 60,

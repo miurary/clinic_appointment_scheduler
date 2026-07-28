@@ -51,7 +51,18 @@ export function TopNav({
             </Pressable>
           );
         })}
-        <Avatar initials={initialsFor(name)} size={34} tint={tintFor(name)} />
+        {/* The only route to profile and sign-out on desktop, where there is
+            no bottom tab bar. Decorative before, which left desktop users with
+            no way to sign out at all. */}
+        <Pressable
+          onPress={() => router.push('/profile')}
+          accessibilityRole="link"
+          accessibilityLabel="Your profile and sign out"
+          accessibilityState={{ selected: isActive(pathname, '/profile') }}
+          style={isActive(pathname, '/profile') ? styles.avatarActive : undefined}
+        >
+          <Avatar initials={initialsFor(name)} size={34} tint={tintFor(name)} />
+        </Pressable>
       </View>
     </View>
   );
@@ -150,6 +161,11 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   topLinkActiveText: { fontFamily: font.semibold, color: color.ink },
+  avatarActive: {
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    borderColor: color.primary,
+  },
   tabBar: {
     flexDirection: 'row',
     justifyContent: 'space-around',

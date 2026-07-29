@@ -2,7 +2,8 @@
 
 A clinic appointment scheduler — patients browse a provider's real availability and book; providers set their weekly hours, block time off, and see their week.
 
-<!-- GIF -->
+![Patient View](./readme_assets/kivo1.gif)
+![Provider View](./readme_assets/kivo2.gif)
 
 ## Why
 

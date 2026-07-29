@@ -1,5 +1,6 @@
 from zoneinfo import available_timezones
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -113,6 +114,10 @@ class ProviderProfile(models.Model):
     )
     specialty = models.CharField(max_length=120, blank=True)
     bio = models.TextField(blank=True)
+    # Which site this provider works from. A single free-text field rather than
+    # a Clinic model: multi-location scheduling is out of scope, and the UI
+    # only ever displays this string.
+    location = models.CharField(max_length=120, blank=True)
 
     # Length of a bookable slot; availability windows are divided into these.
     slot_duration_minutes = models.PositiveIntegerField(default=30)
@@ -133,8 +138,15 @@ class ProviderProfile(models.Model):
 
     @property
     def timezone(self) -> str:
-        """Providers schedule in their own local time."""
-        return self.user.timezone
+        """The zone this provider's availability is written in.
+
+        Read by generate_slots, which needs a zone to turn an AvailabilityRule's
+        wall-clock "09:00" into an instant. Providers work clinic hours at a
+        clinic site, so that zone is the clinic's and not theirs: deliberately
+        *not* self.user.timezone, which is a display preference and must never
+        move when a provider actually works.
+        """
+        return settings.CLINIC_TIMEZONE
 
 
 class PatientProfile(models.Model):

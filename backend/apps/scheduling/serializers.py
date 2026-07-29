@@ -3,12 +3,26 @@ from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, OperationalError, transaction
 from rest_framework import serializers
+from rest_framework.exceptions import APIException
 
 from apps.accounts.models import ProviderProfile
 from apps.accounts.serializers import ProviderPublicSerializer, UserSerializer
 
-from .models import Appointment, AvailabilityRule, TimeOff
+from .models import ACTIVE_STATUSES, Appointment, AvailabilityRule, TimeOff
 from .services.slots import generate_slots
+
+
+class SlotTaken(APIException):
+    """409, not 400: the request was valid, the world changed underneath it.
+
+    Clients distinguish this from ordinary validation failure to show the
+    "just booked by someone else" state rather than a field error.
+    """
+
+    status_code = 409
+    default_detail = "That time was just booked by someone else. Please pick another."
+    default_code = "slot_taken"
+
 
 # Postgres SQLSTATEs that mean "another transaction got there first", as opposed
 # to a genuine data error. Matching on these rather than on the exception class
@@ -136,6 +150,14 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
         local_date = start_at.astimezone(ZoneInfo(provider.timezone)).date()
         available = generate_slots(provider, local_date, local_date)
         if not any(slot.start_at == start_at for slot in available):
+            # Two different failures wear the same face here. A slot that is
+            # missing because somebody already booked it is a conflict the
+            # client should show as "just taken"; a slot that was never on
+            # offer is an ordinary bad request.
+            if Appointment.objects.filter(
+                provider=provider, start_at=start_at, status__in=ACTIVE_STATUSES
+            ).exists():
+                raise SlotTaken()
             raise serializers.ValidationError(
                 {"start_at": "That time is not available for this provider."}
             )
@@ -157,9 +179,55 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
             # a lost connection, a real integrity bug -- must not be swallowed.
             if not _is_slot_conflict(exc):
                 raise
+            raise SlotTaken() from exc
+
+
+class AppointmentRescheduleSerializer(serializers.ModelSerializer):
+    """Moves an existing appointment to a different open slot.
+
+    Only start_at is writable; end_at is recomputed from the provider, and the
+    new time is validated against the same slot generator a fresh booking uses.
+    """
+
+    class Meta:
+        model = Appointment
+        fields = ["start_at"]
+
+    def validate_start_at(self, value):
+        provider = self.instance.provider
+        if value == self.instance.start_at:
+            raise serializers.ValidationError("That is the current appointment time.")
+
+        local_date = value.astimezone(ZoneInfo(provider.timezone)).date()
+        available = generate_slots(provider, local_date, local_date)
+        if not any(slot.start_at == value for slot in available):
+            if (
+                Appointment.objects.filter(
+                    provider=provider, start_at=value, status__in=ACTIVE_STATUSES
+                )
+                .exclude(pk=self.instance.pk)
+                .exists()
+            ):
+                raise SlotTaken()
             raise serializers.ValidationError(
-                {"start_at": "That slot was just taken. Please pick another."}
-            ) from exc
+                "That time is not available for this provider."
+            )
+        return value
+
+    def update(self, instance, validated_data):
+        start_at = validated_data["start_at"]
+        instance.start_at = start_at
+        instance.end_at = start_at + timedelta(
+            minutes=instance.provider.slot_duration_minutes
+        )
+        try:
+            with transaction.atomic():
+                instance.save(update_fields=["start_at", "end_at", "updated_at"])
+        except (IntegrityError, OperationalError) as exc:
+            if not _is_slot_conflict(exc):
+                raise
+            raise SlotTaken() from exc
+        return instance
 
 
 class AppointmentCancelSerializer(serializers.Serializer):

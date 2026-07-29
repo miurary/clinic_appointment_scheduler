@@ -10,6 +10,7 @@ slot service gets exercised on every run.
 
 from datetime import date, time, timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -34,7 +35,7 @@ PROVIDERS = [
         "first_name": "Dana",
         "last_name": "Okafor",
         "specialty": "Family medicine",
-        "timezone": "America/New_York",
+        "location": "Ballard clinic",
         "slot_duration_minutes": 30,
         "buffer_minutes": 5,
         "min_notice_minutes": 120,
@@ -45,7 +46,7 @@ PROVIDERS = [
         "first_name": "Priya",
         "last_name": "Raman",
         "specialty": "Dermatology",
-        "timezone": "America/Los_Angeles",
+        "location": "Downtown clinic",
         "slot_duration_minutes": 60,
         "buffer_minutes": 0,
         "min_notice_minutes": 24 * 60,
@@ -60,7 +61,7 @@ PROVIDERS = [
         "first_name": "Sam",
         "last_name": "Nakamura",
         "specialty": "Paediatrics",
-        "timezone": "America/Chicago",
+        "location": "Ballard clinic",
         "slot_duration_minutes": 20,
         "buffer_minutes": 10,
         "min_notice_minutes": 60,
@@ -140,23 +141,31 @@ class Command(BaseCommand):
         )
 
     def _create_provider(self, spec: dict) -> ProviderProfile:
-        user, created = User.objects.get_or_create(
+        user, created = User.objects.update_or_create(
             email=spec["email"],
             defaults={
                 "first_name": spec["first_name"],
                 "last_name": spec["last_name"],
                 "role": Role.PROVIDER,
-                "timezone": spec["timezone"],
+                # Providers work at the clinic, so their display preference
+                # starts there too. Patients below are deliberately scattered:
+                # that is where a display zone differing from the clinic's is
+                # the normal case rather than a mistake.
+                "timezone": settings.CLINIC_TIMEZONE,
             },
         )
         if created:
             user.set_password(DEMO_PASSWORD)
             user.save(update_fields=["password"])
 
-        profile, _ = ProviderProfile.objects.get_or_create(
+        # update_or_create rather than get_or_create: `defaults` is ignored for
+        # rows that already exist, so a field added to the demo data after the
+        # first run would never appear. Converging keeps re-running honest.
+        profile, _ = ProviderProfile.objects.update_or_create(
             user=user,
             defaults={
                 "specialty": spec["specialty"],
+                "location": spec["location"],
                 "slot_duration_minutes": spec["slot_duration_minutes"],
                 "buffer_minutes": spec["buffer_minutes"],
                 "min_notice_minutes": spec["min_notice_minutes"],

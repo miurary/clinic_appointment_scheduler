@@ -40,6 +40,10 @@ class ProviderSpec:
     provider it built.
     """
 
+    # The clinic zone this provider's hours are written in. Not stored on the
+    # provider -- there is one clinic and one zone -- so building a provider from
+    # this spec sets settings.CLINIC_TIMEZONE, and two specs that disagree cannot
+    # appear in the same test.
     timezone: str
     weekday: int
     opens: time
@@ -81,11 +85,12 @@ PROVIDER_SPEC = ProviderSpec(
     slot_minutes=30,
 )
 
-# Deliberately different in every dimension: if a view reads the wrong
-# provider's timezone or slot length, the result is obviously wrong rather than
-# accidentally matching the first provider's.
+# Deliberately different in every dimension a provider actually owns: if a view
+# reads the wrong provider's window or slot length, the result is obviously wrong
+# rather than accidentally matching the first provider's. The zone is not one of
+# those dimensions -- both work at the same clinic, so it has to match.
 OTHER_PROVIDER_SPEC = ProviderSpec(
-    timezone="America/Los_Angeles",
+    timezone=PROVIDER_SPEC.timezone,
     weekday=Weekday.MONDAY,
     opens=time(10, 0),
     closes=time(16, 0),
@@ -160,13 +165,34 @@ def make_patient(email, first, last, tz="America/New_York", dob=date(1990, 5, 17
     return user
 
 
-def make_provider(email, first, last, spec: ProviderSpec):
+def claim_clinic_zone(settings, spec: ProviderSpec):
+    """Point the clinic at the zone `spec` writes its hours in.
+
+    Availability lives in clinic time, so a test cannot hold two providers in
+    two zones. Rather than let the second fixture quietly win and produce slots
+    nobody expected, requesting two disagreeing specs together is an error.
+    """
+    claimed = getattr(settings, "CLINIC_TIMEZONE_CLAIMED_BY", None)
+    if claimed is not None and claimed != spec.timezone:
+        raise RuntimeError(
+            f"Provider fixtures disagree about the clinic zone: {claimed} then "
+            f"{spec.timezone}. There is one clinic and one zone -- pick fixtures "
+            f"whose specs agree, or test the other zone separately."
+        )
+    settings.CLINIC_TIMEZONE = spec.timezone
+    settings.CLINIC_TIMEZONE_CLAIMED_BY = spec.timezone
+
+
+def make_provider(email, first, last, spec: ProviderSpec, settings):
+    claim_clinic_zone(settings, spec)
     user = User.objects.create_user(
         email=email,
         password=PASSWORD,
         first_name=first,
         last_name=last,
         role=Role.PROVIDER,
+        # Their display preference. Set to the clinic zone because that is the
+        # ordinary case; tests that check the two are independent change it.
         timezone=spec.timezone,
     )
     profile = ProviderProfile.objects.create(
@@ -257,60 +283,76 @@ def staff(db):
 
 
 @pytest.fixture
-def provider(db):
+def provider(db, settings):
     """New York, Mondays 09:00-17:00, 30 minute slots, no notice period."""
-    return make_provider("provider@example.com", "Dana", "Docta", PROVIDER_SPEC)
+    return make_provider(
+        "provider@example.com", "Dana", "Docta", PROVIDER_SPEC, settings
+    )
 
 
 @pytest.fixture
-def other_provider(db):
+def other_provider(db, settings):
     """Los Angeles, Mondays 10:00-16:00, 60 minute slots."""
     return make_provider(
-        "other.provider@example.com", "Robin", "Elsewhere", OTHER_PROVIDER_SPEC
+        "other.provider@example.com",
+        "Robin",
+        "Elsewhere",
+        OTHER_PROVIDER_SPEC,
+        settings,
     )
 
 
 @pytest.fixture
-def kolkata_provider(db):
+def kolkata_provider(db, settings):
     """Mondays 09:00-17:00 at UTC+5:30, with no DST anywhere in the year."""
     return make_provider(
-        "kolkata.provider@example.com", "Kiran", "Rao", KOLKATA_PROVIDER_SPEC
+        "kolkata.provider@example.com", "Kiran", "Rao", KOLKATA_PROVIDER_SPEC, settings
     )
 
 
 @pytest.fixture
-def adelaide_provider(db):
+def adelaide_provider(db, settings):
     """Sundays 01:00-05:00 at UTC+9:30, with southern-hemisphere DST."""
     return make_provider(
-        "adelaide.provider@example.com", "Alex", "Downunder", ADELAIDE_PROVIDER_SPEC
+        "adelaide.provider@example.com",
+        "Alex",
+        "Downunder",
+        ADELAIDE_PROVIDER_SPEC,
+        settings,
     )
 
 
 @pytest.fixture
-def buffered_provider(db):
+def buffered_provider(db, settings):
     """As `provider`, but with 15 minutes of turnover either side of a booking."""
     return make_provider(
-        "buffered.provider@example.com", "Bev", "Buffer", BUFFERED_PROVIDER_SPEC
+        "buffered.provider@example.com",
+        "Bev",
+        "Buffer",
+        BUFFERED_PROVIDER_SPEC,
+        settings,
     )
 
 
 @pytest.fixture
-def notice_provider(db):
+def notice_provider(db, settings):
     """As `provider`, but requiring four hours notice before a slot."""
     return make_provider(
-        "notice.provider@example.com", "Nick", "Notice", NOTICE_PROVIDER_SPEC
+        "notice.provider@example.com", "Nick", "Notice", NOTICE_PROVIDER_SPEC, settings
     )
 
 
 @pytest.fixture
-def dst_provider(db):
+def dst_provider(db, settings):
     """New York, Sundays 01:00-05:00 -- straddles both DST transitions.
 
     This is the case _to_utc's round-trip check exists for; without a fixture
     that crosses a transition, the most interesting code in the project is
     never exercised.
     """
-    return make_provider("dst.provider@example.com", "Sam", "Shift", DST_PROVIDER_SPEC)
+    return make_provider(
+        "dst.provider@example.com", "Sam", "Shift", DST_PROVIDER_SPEC, settings
+    )
 
 
 # --- authenticated clients ------------------------------------------------

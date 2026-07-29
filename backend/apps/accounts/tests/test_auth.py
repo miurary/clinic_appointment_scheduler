@@ -71,6 +71,23 @@ class TestRegistration:
         assert ProviderProfile.objects.filter(user=user).exists()
         assert not PatientProfile.objects.filter(user=user).exists()
 
+    def test_a_new_provider_starts_closed_to_bookings(self, api_client):
+        """They have no availability yet, so listing them as accepting would
+        put a name in the patient's picker that can never have a free slot."""
+        api_client.post(
+            REGISTER,
+            {
+                "email": "fresh.doc@example.com",
+                "password": GOOD_PASSWORD,
+                "role": Role.PROVIDER,
+            },
+            format="json",
+        )
+
+        profile = ProviderProfile.objects.get(user__email="fresh.doc@example.com")
+        assert profile.accepting_new_patients is False
+        assert not profile.availability_rules.exists()
+
     def test_the_password_is_hashed_not_stored(self, api_client):
         api_client.post(
             REGISTER,
